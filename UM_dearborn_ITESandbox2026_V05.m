@@ -73,6 +73,74 @@ assert(mod(road.length, sim.dx) == 0, ...
 assert(88*sim.dt/sim.dx <= 1, ...
     "CFL condition violated — reduce dt or increase dx")
 
+
+% ====================================================================
+%% ==================== Load House Hold Data =========================
+% ====================================================================
+filename_householdData = "HouseholdData.xlsx";
+H_mainCampus = readmatrix(filename_householdData,'Sheet','MainCampus');
+H_mainCampus = H_mainCampus(2:end-1,2:end-1); % omit row titles, column titles and totals
+H_shoppingCenter = readmatrix(filename_householdData,'Sheet','ShoppingCenter');
+H_shoppingCenter = H_shoppingCenter(2:end-1,2:end-1); % omit row titles, column titles and totals
+H_studentHousing = readmatrix(filename_householdData,'Sheet','StudentHousing');
+H_studentHousing = H_studentHousing(2:end-1,2:end-1); % omit row titles, column titles and totals
+H_northBoundary = readmatrix(filename_householdData,'Sheet','NorthBoundary');
+H_northBoundary = H_northBoundary(2:end-1,2:end-1); % omit row titles, column titles and totals
+H_southBoundary = readmatrix(filename_householdData,'Sheet','SouthBoundary');
+H_southBoundary = H_southBoundary(2:end-1,2:end-1); % omit row titles, column titles and totals
+H_eastBoundary = readmatrix(filename_householdData,'Sheet','EastBoundary');
+H_eastBoundary = H_eastBoundary(2:end-1,2:end-1); % omit row titles, column titles and totals
+
+% ====================================================================
+%% =============== Load Trip Production Rate Data ====================
+% ====================================================================
+filename_tripRateData = "TripRateData.xlsx";
+R_mainCampus = readmatrix(filename_tripRateData,'Sheet','MainCampus');
+R_mainCampus = R_mainCampus(2:end-1,2:end-1); % omit row titles, column titles and totals
+R_shoppingCenter = readmatrix(filename_tripRateData,'Sheet','ShoppingCenter');
+R_shoppingCenter = R_shoppingCenter(2:end-1,2:end-1); % omit row titles, column titles and totals
+R_studentHousing = readmatrix(filename_tripRateData,'Sheet','StudentHousing');
+R_studentHousing = R_studentHousing(2:end-1,2:end-1); % omit row titles, column titles and totals
+R_northBoundary = readmatrix(filename_tripRateData,'Sheet','NorthBoundary');
+R_northBoundary = R_northBoundary(2:end-1,2:end-1); % omit row titles, column titles and totals
+R_southBoundary = readmatrix(filename_tripRateData,'Sheet','SouthBoundary');
+R_southBoundary = R_southBoundary(2:end-1,2:end-1); % omit row titles, column titles and totals
+R_eastBoundary = readmatrix(filename_tripRateData,'Sheet','EastBoundary');
+R_eastBoundary = R_eastBoundary(2:end-1,2:end-1); % omit row titles, column titles and totals
+
+% ====================================================================
+%% ================== Generate Hourly Factors ========================
+% ====================================================================
+% w = peak weight [fraction of daily traffic]
+% mu = peak time [hour of day (1-24)]
+% sigma = peak duration 1-sigma value[hours]
+% N = num peaks
+% summation of gaussian distribution function for each N to get hourly
+% factor
+F_mainCampus.w = [1]; F_mainCampus.mu = [16]; F_mainCampus.sigma = [1];
+f_mainCampus = parametricPeaks(F_mainCampus);
+F_shoppingCenter.w = [1]; F_shoppingCenter.mu = [16]; F_shoppingCenter.sigma = [1];
+f_shoppingCenter = parametricPeaks(F_shoppingCenter);
+F_studentHousing.w = [1]; F_studentHousing.mu = [16]; F_studentHousing.sigma = [1];
+f_studentHousing = parametricPeaks(F_studentHousing);
+F_northBoundary.w = [1]; F_northBoundary.mu = [16]; F_northBoundary.sigma = [1];
+f_northBoundary = parametricPeaks(F_northBoundary);
+F_southBoundary.w = [1]; F_southBoundary.mu = [16]; F_southBoundary.sigma = [1];
+f_southBoundary = parametricPeaks(F_southBoundary);
+F_eastBoundary.w = [1]; F_eastBoundary.mu = [16]; F_eastBoundary.sigma = [1];
+f_eastBoundary = parametricPeaks(F_eastBoundary);
+figure('Name','debugHourlyFactors')
+plot(f_mainCampus)
+grid on
+
+% ====================================================================
+%% ==================== Load Trip Rate Data ==========================
+% ====================================================================
+
+% ====================================================================
+%% ================= Load Attraction Rate Data =======================
+% ====================================================================
+
 % ====================================================================
 %% =============== MDOT Data Inputs (Truth Data) =====================
 % ====================================================================
@@ -444,4 +512,27 @@ function s = timeVaryingSource(t, peakHour, peak, source)
 %   s           - net car density per second added or subtracted from roadway
 
 s = source*peak*(1 + cos(pi*t/(12*60*60) + peakHour*60*60))/2;
+end
+
+function f = parametricPeaks(peakParameters)
+% parametricPeaks
+% calculates weights to convert daily traffic volume to hourly volume using
+% a gaussian distribution and user specified peaks
+%
+% INPUT:
+%   peakParameters   - User defined weights, duration, and time
+% OUTPUT:
+%   f                - 24 element vector of weights to convert daily 
+%                       volume to hourly
+
+% check size of inputs for number of peaks
+N = length(peakParameters.w);
+h = 1:24; % vector of 24 hour day
+f_prev = zeros(size(h)); % initialize f
+% calculate gaussian distribution for each peak and sum
+for idx = 1:N
+    g = exp(-((h-peakParameters.mu(idx)).^2./(2*peakParameters.sigma(idx).^2)));
+    f = peakParameters.w(idx).*g + f_prev;
+    f_prev = f;
+end
 end
