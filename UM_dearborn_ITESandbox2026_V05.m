@@ -463,23 +463,15 @@ ylabel('Position [ft]')
 title('Space-Time Density Diagram')
 
 %% Signal Timing
-figure('Name','Signal Timing')
-stairs(t(1:Nt-1)/60, g, 'LineWidth', 2)
-ylim([-0.1 1.1])
-xlabel('Time [min]')
-ylabel('Signal State')
-title('Signal Green / Red Timing')
-yticks([0 1])
-yticklabels({'Red','Green'})
-grid on
-
 signal_band = zeros(size(g_eff));
-signal_band(signal.cell, :) = g;
+g_signalPlot = g;
+g_signalPlot(g==0) = -1;
+signal_band(signal.cell, :) = g_signalPlot;
 figure('Name','Signal Space-Time')
 imagesc(t/60, x_centers, signal_band)
-colormap([1 1 1; 0 0.6 0])
-clim([0 1])
-colorbar('Ticks',[0 1],'TickLabels',{'Red','Green'})
+colormap([0.6 0 0;1 1 1; 0 0.6 0])
+clim([-1 1])
+colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
 xlabel('Time [min]')
 ylabel('Position [ft]')
 title('Signal Location and Timing')
