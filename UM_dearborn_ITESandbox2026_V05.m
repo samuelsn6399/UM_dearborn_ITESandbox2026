@@ -462,12 +462,34 @@ xlabel('Time [hr]')
 ylabel('Position [ft]')
 title('Space-Time Density Diagram')
 
+%% OD Tuning
+%t_odTuning = [1:1:24].*3600; % create a time vector in seconds to plot the MDOT hourly values
+figure('Name', 'odTuning')
+subplot(2,2,1)
+hold on
+plot(t,F(1,:),'r-','DisplayName','Incoming Flow (OD Model)')
+plot(t,[repelem(q_in_hour,3600),0],'b:','DisplayName','Incoming Flow (MDOT Truth Data)')
+hold off; ylabel('Flow (veh/s)'); title('North Boundary Inflow'); xlabel('time (s)'); grid on
+subplot(2,2,2)
+northBoundary_inFlow_diff = F(1,:)-[repelem(q_in_hour,3600),0];
+plot(t,northBoundary_inFlow_diff,'r-','DisplayName','OD Model - MDOT Truth Data')
+title('Difference Between Model and Truth'); xlabel('time (s)'); grid on
+subplot(2,2,3)
+hold on
+plot(t,F(road.Nx+1,:),'r-','DisplayName','Outgoing Flow (OD Model)')
+plot(t,[repelem(q_out_hour,3600),0],'b:','DisplayName','Outgoing Flow (MDOT Truth Data)')
+hold off; ylabel('Flow (veh/s)'); title('South Boundary Outflow'); xlabel('time (s)'); grid on
+subplot(2,2,4)
+southBoundary_outFlow_diff = F(road.Nx+1,:)-[repelem(q_out_hour,3600),0];
+plot(t,southBoundary_outFlow_diff,'r-','DisplayName','OD Model - MDOT Truth Data')
+title('DIfference Between Model and Truth'); xlabel('time (s)'); grid on
+
 %% Signal Timing
 signal_band = zeros(size(g_eff));
 g_signalPlot = g;
 g_signalPlot(g==0) = -1;
 signal_band(signal.cell, :) = g_signalPlot;
-figure('Name','Signal Space-Time')
+figure('Name','signalSpaceTime')
 imagesc(t/60, x_centers, signal_band)
 colormap([0.6 0 0;1 1 1; 0 0.6 0])
 clim([-1 1])
@@ -480,7 +502,7 @@ title('Signal Location and Timing')
 plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access);
 
 %% Source/Sink Flows (Demand Model Output)
-figure('Name','Access Point Flows (Demand Model)')
+figure('Name','accessPointFlowsDemandModel')
 hours_vec = 1:24;
 for k = 1:Naccess
     subplot(Naccess, 1, k)
@@ -497,7 +519,7 @@ xlabel('Hour of Day')
 sgtitle('Access Point Hourly Flows from 4-Step Demand Model')
 
 %% Net Source/Sink Contribution Along Corridor Over Time
-figure('Name','Net Source-Sink Log')
+figure('Name','netSourceSinkLog')
 active_log = access.log(access.xSegment, :);
 for k = 1:Naccess
     subplot(Naccess, 1, k)
@@ -510,7 +532,7 @@ xlabel('Time [hr]')
 sgtitle('Net Source/Sink Term in LWR Equation [veh/ft/s]')
 
 %% OD Matrix Heatmap
-figure('Name','OD Matrix (Vehicle Trips/Day)')
+figure('Name','odMatrixVehicleTripsDay')
 imagesc(demand.T_vehicle)
 colorbar
 xticks(1:Nzones); xticklabels(demand.zone_names); xtickangle(30)
@@ -607,7 +629,7 @@ function plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access
 
 max_lanes = max(N_lanes);
 
-figure('Name','Road Geometry','Color','w');
+figure('Name','roadGeometry','Color','w');
 hold on;
 
 for i = 1:road.Nx
