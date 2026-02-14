@@ -385,7 +385,7 @@ for n = 1:Nt-1
         g_eff(i,n) = is_signal(i) * g(n);
     end
 
-    % Upstream boundary (south inflow)
+    % Upstream boundary (south outflow)
     if rho(1,n) <= FD.rho_c
         S1 = FD.Q(FD.rho_c, FD.vf(1));
     else
@@ -393,7 +393,7 @@ for n = 1:Nt-1
     end
     F(1,n) = min(q_in_hour(h), S1);
 
-    % Downstream boundary (north outflow)
+    % Downstream boundary (north inflow)
     if rho(road.Nx,n) <= FD.rho_c
         D_Nx = FD.Q(rho(road.Nx,n), FD.vf(end));
     else
