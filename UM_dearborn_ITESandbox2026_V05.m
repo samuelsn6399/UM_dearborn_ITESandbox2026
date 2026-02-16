@@ -80,7 +80,7 @@ demand.zone_dy = [   0,      0,  5000,     0,      0, 5280];  % [ft]
 % Linear model: A_zone = rate_emp*Employment + rate_enroll*Enrollment
 %               + rate_retail*RetailArea (NCHRP 716 Table 3-8 guidance)
 demand.attr_rates = [1.5,    ...  % [person-trips/job/day]
-                     0.8,    ...  % [person-trips/student/day]
+                     0.1,    ...  % [person-trips/student/day]
                      0.002]; ...  % [person-trips/sqft/day]
 
 % ---- Step 2 Parameters: Gravity Model ----
@@ -99,6 +99,12 @@ demand.taz_peak_arrive = [8,  13];      % [hour of day] arrival peak per TAZ
 demand.taz_sigma_arrive = [1.5, 2.0];  % [hours] arrival peak spread per TAZ
 demand.taz_peak_depart = [17,  14];    % [hour of day] departure peak per TAZ
 demand.taz_sigma_depart = [1.5, 2.0]; % [hours] departure peak spread per TAZ
+% Each external TAZ has an inflow peak and outflow peak
+boundary.taz_peak_inflow = [12, 12, 12, 12]; % [hour of day] inflow peak per TAZ
+boundary.taz_sigma_inflow = [5, 5, 5, 5]; % [hours] inflow peak spread per TAZ
+boundary.taz_peak_outflow = [12, 12, 12, 12]; % [hour of day] inflow peak per TAZ
+boundary.taz_sigma_outflow = [5, 5, 5, 5]; % [hours] inflow peak spread per TAZ
+
 fprintf('Done Configuring 4-step model parameters...\n')
 % ====================================================================
 %% =============== Check For Valid User Inputs =======================
@@ -164,8 +170,9 @@ Nzones = length(demand.zone_names);
 %% Step 1a: Trip Productions (Cross-Classification)
 % P_i = sum over all (autos, household-size) cells of H_i(a,s) * R_i(a,s)
 % Units: [person-trips/day] produced by zone i
+% temporary change: increase north boundary trip production to align with MDOT data
 H_list = {H_mainCampus, H_shoppingCenter, H_studentHousing, ...
-          H_northBoundary, H_southBoundary, H_eastBoundary};
+          H_northBoundary.*4, H_southBoundary, H_eastBoundary};
 R_list = {R_mainCampus, R_shoppingCenter, R_studentHousing, ...
           R_northBoundary, R_southBoundary, R_eastBoundary};
 
@@ -181,7 +188,8 @@ demand.A_raw = demand.AttractionParams * demand.attr_rates'; % [Nzones x 1]
 
 %% Step 1c: Balance Productions and Attractions
 % Conservation: total P must equal total A (NCHRP 716 Section 3.2)
-% Scale attractions so sum(A) = sum(P)
+% Scale attractions so sum(A) = sum(P) by holding trip productions, P,
+% constant and scaling trip attractions, A
 P_total = sum(demand.P);
 A_total = sum(demand.A_raw);
 demand.A = demand.A_raw * (P_total / A_total); % [person-trips/day] balanced
@@ -227,6 +235,8 @@ demand.T_vehicle = demand.T_person / demand.auto_occupancy; % [veh/day] OD table
 % External zone indices (zones 3-6 feed/exit via corridor boundaries)
 internal_idx = [1, 2];          % TAZ indices for corridor-internal zones
 external_idx = [3, 4, 5, 6];   % TAZ indices for boundary zones
+% TODO: move student housing, external_idx(3), to be an internal_idx when
+% the East-West roadway is captured in the model
 
 % Daily vehicle trips arriving at / departing from each internal TAZ
 % Arrivals: sum of T_vehicle(external_i -> internal_j) for each internal j
@@ -234,9 +244,9 @@ external_idx = [3, 4, 5, 6];   % TAZ indices for boundary zones
 demand.V_taz_arrive = zeros(1, length(internal_idx)); % [veh/day]
 demand.V_taz_depart = zeros(1, length(internal_idx)); % [veh/day]
 for k = 1:length(internal_idx)
-    iz = internal_idx(k);
-    demand.V_taz_arrive(k) = sum(demand.T_vehicle(external_idx, iz));
-    demand.V_taz_depart(k) = sum(demand.T_vehicle(iz, external_idx));
+    ik = internal_idx(k);
+    demand.V_taz_arrive(k) = sum(demand.T_vehicle(external_idx, ik));
+    demand.V_taz_depart(k) = sum(demand.T_vehicle(ik, external_idx));
 end
 
 % Distribute TAZ totals across individual access points using split factors
@@ -249,6 +259,24 @@ for k = 1:Naccess
     taz_local = find(internal_idx == taz_k, 1);
     access.V_arrive(k) = demand.V_taz_arrive(taz_local) * sp;
     access.V_depart(k) = demand.V_taz_depart(taz_local) * sp;
+end
+
+% Distribute TAZ totals across boundaries
+Nboundary = length(external_idx); % two way road at the East end, two way road at the North end, two way road at the south end
+boundary.V_pass = zeros(Nboundary,2); % [veh/day] passing across the boundary locations
+% NOTE: all values are positive because it is an absolute value of all vehicles that pass the boundary location regardless of direction.
+%       vehicles do not depart or arrive at a boundary as they do for access points.
+% NOTE: boundaries are provided in 2-element pairs, for inflow and outflow.
+%       ie. STUDE  HOUSING [#,#; *** student housing is temporarially a boundary and unused
+%           NORTH BOUNDARY  #,#;
+%           SOUTH BOUNDARY  #,#;
+%           EAST  BOUNDARY  #,#];
+% NOTE: the current version of the simulation only uses the South Boundary outflow and the North Boundary inflow
+%       because the model only captures the traffic flow dynamics of a single direction arterial road.
+for z = 1:Nboundary
+    boundary_z = external_idx(z);
+    boundary.V_pass(z,1) = sum(demand.T_vehicle(boundary_z,:)); % sum of trips originating at the boundary and endinga at all destinations
+    boundary.V_pass(z,2) = sum(demand.T_vehicle(:,boundary_z)); % sum of trips originating at all TAZs and ending at the boundary
 end
 fprintf('Done Loading 4-step model...\n')
 % ====================================================================
@@ -283,6 +311,24 @@ for k = 1:length(internal_idx)
         access.f_depart(:, p) = f_norm_dep(:);
     end
 end
+% Convert daily flow across the boundaries to hourly rates
+% In-flow and out-flow profiles computed per boundary taz
+boundary.f = zeros([size(boundary.V_pass),24]);
+% boundar.f(1,1,1) = [boundary 1, inflow, hour 1]
+for z = 1:length(external_idx)
+    F_in.w = 1;
+    F_in.mu = boundary.taz_peak_inflow(z);
+    F_in.sigma = boundary.taz_peak_inflow(z);
+    f_raw_in = parametricPeaks(F_in);
+    f_norm_in = f_raw_in/sum(f_raw_in);
+    F_out.w = 1;
+    F_out.mu = boundary.taz_peak_outflow(z);
+    F_out.sigma = boundary.taz_peak_outflow(z);
+    f_raw_out = parametricPeaks(F_out);
+    f_norm_out = f_raw_out/sum(f_raw_out);
+    boundary.f(z,1,:) = f_norm_in;
+    boundary.f(z,2,:) = f_norm_out;
+end
 fprintf('Done Loading temporal factors...\n')
 % ====================================================================
 %% =============== MDOT Data Inputs (Truth Data) =====================
@@ -303,8 +349,8 @@ MDOT_outflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
                     1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
 ...%        hour = [19    20    21   22   23   24 ]
                     1500, 1000, 700, 450, 300, 220]; % [veh/hour]
-q_in_hour  = MDOT_inflow_hour  / 3600; % [veh/s]
-q_out_hour = MDOT_outflow_hour / 3600; % [veh/s]
+MDOT_inflow_s  = MDOT_inflow_hour  / 3600; % [veh/s]
+MDOT_outflow_s = MDOT_outflow_hour / 3600; % [veh/s]
 fprintf('Done Loading MDOT data...\n')
 % ====================================================================
 %% =================== Simulation Setup ==============================
@@ -385,22 +431,26 @@ for n = 1:Nt-1
         g_eff(i,n) = is_signal(i) * g(n);
     end
 
-    % Upstream boundary (south outflow)
+    % Upstream boundary (north inflow)
     if rho(1,n) <= FD.rho_c
         S1 = FD.Q(FD.rho_c, FD.vf(1));
     else
         S1 = FD.Q(rho(1,n), FD.vf(1));
     end
-    F(1,n) = min(q_in_hour(h), S1);
+    % F(1,n) = min(MDOT_inflow_s(h), S1); *** Comented out MDOT inflow in favor of OD model inflow
+    % inflow from the north boundary at hour, h
+    F(1,n) = boundary.f(2,1,h) * boundary.V_pass(2,1)/3600; % (veh/s) inbound flux across Northern Boundary
 
-    % Downstream boundary (north inflow)
+    % Downstream boundary (south outflow)
     if rho(road.Nx,n) <= FD.rho_c
         D_Nx = FD.Q(rho(road.Nx,n), FD.vf(end));
     else
         D_Nx = FD.Q(FD.rho_c, FD.vf(end));
     end
-    F(road.Nx+1,n) = min(q_out_hour(h), D_Nx);
-
+    % F(road.Nx+1,n) = min(MDOT_outflow_s(h), D_Nx); *** Comented out MDOT outflow in favor of OD model outflow
+    % outflow from the south boundary at hour, h
+    F(road.Nx+1,n) = boundary.f(3,2,h)* boundary.V_pass(3,2)/3600; % (veh/s) outbound flux across Southern boundary
+    
     % Update density: LWR finite-volume + demand-model source/sink terms
     for i = 1:road.Nx
         % Compute source/sink from 4-step demand model
@@ -462,24 +512,38 @@ xlabel('Time [hr]')
 ylabel('Position [ft]')
 title('Space-Time Density Diagram')
 
-%% Signal Timing
-figure('Name','Signal Timing')
-stairs(t(1:Nt-1)/60, g, 'LineWidth', 2)
-ylim([-0.1 1.1])
-xlabel('Time [min]')
-ylabel('Signal State')
-title('Signal Green / Red Timing')
-yticks([0 1])
-yticklabels({'Red','Green'})
-grid on
+%% OD Tuning
+%t_odTuning = [1:1:24].*3600; % create a time vector in seconds to plot the MDOT hourly values
+figure('Name', 'odTuning')
+subplot(2,2,1)
+hold on
+plot(t,F(1,:),'r-','DisplayName','Incoming Flow (OD Model)')
+plot(t,[repelem(MDOT_inflow_s,3600),0],'b:','DisplayName','Incoming Flow (MDOT Truth Data)')
+hold off; ylabel('Flow (veh/s)'); title('North Boundary Inflow'); xlabel('time (s)'); grid on; legend();
+subplot(2,2,2)
+northBoundary_inFlow_diff = F(1,:)-[repelem(MDOT_inflow_s,3600),0];
+plot(t,northBoundary_inFlow_diff,'r-','DisplayName','OD Model - MDOT Truth Data')
+title('Difference Between Model and Truth'); xlabel('time (s)'); grid on; legend();
+subplot(2,2,3)
+hold on
+plot(t,F(road.Nx+1,:),'r-','DisplayName','Outgoing Flow (OD Model)')
+plot(t,[repelem(MDOT_outflow_s,3600),0],'b:','DisplayName','Outgoing Flow (MDOT Truth Data)')
+hold off; ylabel('Flow (veh/s)'); title('South Boundary Outflow'); xlabel('time (s)'); grid on; legend();
+subplot(2,2,4)
+southBoundary_outFlow_diff = F(road.Nx+1,:)-[repelem(MDOT_outflow_s,3600),0];
+plot(t,southBoundary_outFlow_diff,'r-','DisplayName','OD Model - MDOT Truth Data')
+title('DIfference Between Model and Truth'); xlabel('time (s)'); grid on; legend();
 
+%% Signal Timing
 signal_band = zeros(size(g_eff));
-signal_band(signal.cell, :) = g;
-figure('Name','Signal Space-Time')
+g_signalPlot = g;
+g_signalPlot(g==0) = -1;
+signal_band(signal.cell, :) = g_signalPlot;
+figure('Name','signalSpaceTime')
 imagesc(t/60, x_centers, signal_band)
-colormap([1 1 1; 0 0.6 0])
-clim([0 1])
-colorbar('Ticks',[0 1],'TickLabels',{'Red','Green'})
+colormap([0.6 0 0;1 1 1; 0 0.6 0])
+clim([-1 1])
+colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
 xlabel('Time [min]')
 ylabel('Position [ft]')
 title('Signal Location and Timing')
@@ -488,7 +552,7 @@ title('Signal Location and Timing')
 plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access);
 
 %% Source/Sink Flows (Demand Model Output)
-figure('Name','Access Point Flows (Demand Model)')
+figure('Name','accessPointFlowsDemandModel')
 hours_vec = 1:24;
 for k = 1:Naccess
     subplot(Naccess, 1, k)
@@ -505,7 +569,7 @@ xlabel('Hour of Day')
 sgtitle('Access Point Hourly Flows from 4-Step Demand Model')
 
 %% Net Source/Sink Contribution Along Corridor Over Time
-figure('Name','Net Source-Sink Log')
+figure('Name','netSourceSinkLog')
 active_log = access.log(access.xSegment, :);
 for k = 1:Naccess
     subplot(Naccess, 1, k)
@@ -518,7 +582,7 @@ xlabel('Time [hr]')
 sgtitle('Net Source/Sink Term in LWR Equation [veh/ft/s]')
 
 %% OD Matrix Heatmap
-figure('Name','OD Matrix (Vehicle Trips/Day)')
+figure('Name','odMatrixVehicleTripsDay')
 imagesc(demand.T_vehicle)
 colorbar
 xticks(1:Nzones); xticklabels(demand.zone_names); xtickangle(30)
@@ -615,7 +679,7 @@ function plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access
 
 max_lanes = max(N_lanes);
 
-figure('Name','Road Geometry','Color','w');
+figure('Name','roadGeometry','Color','w');
 hold on;
 
 for i = 1:road.Nx
@@ -638,7 +702,7 @@ end
 if isfield(access,'xSegment') && ~isempty(access.xSegment)
     band_half = sim.dx/2;
     taz_colors = [0.2 0.6 1.0; 0.2 0.8 0.4]; % blue=MainCampus, green=Shopping
-    taz_labels = {'Campus','Shopping'};
+    % taz_labels = {'Campus','Shopping'};
     for k = 1:length(access.xSegment)
         y = x_centers(access.xSegment(k));
         taz_k = access.taz_idx(k);
