@@ -31,10 +31,12 @@ sim.dt      = 1;                 % [s] time step
 sim.dx      = 500;               % [ft] spatial cell length
 sim.T_end   = 24*3600;           % [s] total simulation time
 fprintf('Done Setting up simulation...\n')
+
 %% Configure Road Geometry (User Input)
 road.name = 'Evergreen Rd';
 road.length = 6500;     % [ft]
 fprintf('Done Configuring road geometry...\n')
+
 %% Traffic Flow Model (User Input)
 FD.model = "Greenshields"; % only one model currently supported
 FD.rho_j = 1/18;    % [veh/ft/lane] jamming density
@@ -45,6 +47,7 @@ signal.green = 45; % [s] signal green time
 signal.red = 75; % [s] signal red time
 signal.Qsat_per_lane = 1900/3600; % [veh/s/lane]
 fprintf('Done Configuring signal(s)...\n')
+
 %% Access Point Configuration (User Input)
 % These define mid-corridor driveway locations where vehicles enter/exit
 % the arterial. Each access point is associated with an internal TAZ.
@@ -106,6 +109,7 @@ boundary.taz_peak_outflow = [12, 12, 12, 12]; % [hour of day] inflow peak per TA
 boundary.taz_sigma_outflow = [5, 5, 5, 5]; % [hours] inflow peak spread per TAZ
 
 fprintf('Done Configuring 4-step model parameters...\n')
+
 % ====================================================================
 %% =============== Check For Valid User Inputs =======================
 % ====================================================================
@@ -119,6 +123,7 @@ assert(abs(sum(access.taz_split(access.taz_idx == 1)) - 1.0) < 1e-6, ...
 assert(abs(sum(access.taz_split(access.taz_idx == 2)) - 1.0) < 1e-6, ...
     "Shopping center access point TAZ splits must sum to 1.0")
 fprintf('Done Checking for valid inputs...\n')
+
 % ====================================================================
 %% ==================== Load House Hold Data =========================
 % ====================================================================
@@ -136,6 +141,7 @@ H_southBoundary = H_southBoundary(1:end-1, 2:end-1);
 H_eastBoundary  = readmatrix(filename_householdData,'Sheet','EastBoundary');
 H_eastBoundary  = H_eastBoundary(1:end-1, 2:end-1);
 fprintf('Done Loading household data...\n')
+
 % ====================================================================
 %% =============== Load Trip Production Rate Data ====================
 % ====================================================================
@@ -153,6 +159,7 @@ R_southBoundary = R_southBoundary(1:end-1, 2:end-1);
 R_eastBoundary  = readmatrix(filename_tripRateData,'Sheet','EastBoundary');
 R_eastBoundary  = R_eastBoundary(1:end-1, 2:end-1);
 fprintf('Done Loading trip production data...\n')
+
 % ====================================================================
 %% =========== Load Attraction Parameter Data ========================
 % ====================================================================
@@ -162,6 +169,7 @@ AP_raw = AP_raw(1:end, 2:end); % omit zone name column and header row
 % Columns: [Employment [jobs], Enrollment [students], RetailArea [sqft]]
 demand.AttractionParams = AP_raw; % Nzones x 3 matrix
 fprintf('Done Loading trip attraction data...\n')
+
 % ====================================================================
 %% ============= 4-STEP TRAVEL DEMAND MODEL ==========================
 % ====================================================================
@@ -279,6 +287,7 @@ for z = 1:Nboundary
     boundary.V_pass(z,2) = sum(demand.T_vehicle(:,boundary_z)); % sum of trips originating at all TAZs and ending at the boundary
 end
 fprintf('Done Loading 4-step model...\n')
+
 % ====================================================================
 %% ============= Generate Hourly Temporal Factors ====================
 % ====================================================================
