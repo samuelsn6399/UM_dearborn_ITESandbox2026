@@ -41,12 +41,33 @@ FD.model = "Greenshields"; % only one model currently supported
 FD.rho_j = 1/18;    % [veh/ft/lane] jamming density
 fprintf('Done selecting traffic flow model...\n')
 
-%% Signal Configuration (User Input)
+%% Road 1 Signal Configuration - Evergreen Rd Southbound (User Input)
+% x = 0 at NORTH end; x = 6500 at SOUTH end
 signal.x = 6000; % [ft]
 signal.green = 45; % [s] signal green time
 signal.red = 75; % [s] signal red time
 signal.Qsat_per_lane = 1900/3600; % [veh/s/lane]
-fprintf('Done configuring signal(s)...\n')
+fprintf('Done configuring Road 1 (SB) signal...\n')
+
+%% Road 2 Configuration - Evergreen Rd Northbound (User Input)
+% x = 0 at SOUTH end; x = 6500 at NORTH end
+% Access point and signal positions use NB coordinates: x_NB = 6500 - x_SB
+road2.name   = 'Evergreen Rd - Northbound';
+road2.length = 6500; % [ft]
+
+% Signal 2: mirrors physical intersection at SB x=6000 → NB x = 6500-6000 = 500 ft
+signal2.x              = 500;          % [ft]
+signal2.green          = 45;           % [s]
+signal2.red            = 75;           % [s]
+signal2.Qsat_per_lane  = 1900/3600;    % [veh/s/lane]
+
+% Lane counts for Road 2 segments (NB, x=0 is SOUTH)
+% Each entry is the number of lanes in the corresponding physical segment.
+%               Seg:  [ 1,  2,  3,  4,  5,  6]
+%        x-range (ft): [0-1k,1k-2k,2k-3k,3k-3.5k,3.5k-4.5k,4.5k-6.5k]
+% Mirrors SB physical: [5.5k-6.5k,4.5k-5.5k,3.5k-4.5k,3k-3.5k,2k-3k,0-2k]
+road2.seg_lanes = [2, 1, 3, 4, 3, 4]; % [lanes] user-confirmed per segment
+fprintf('Done configuring Road 2 (NB)...\n')
 
 %% 4-Step Demand Model Parameters (User Input)
 % ---- Zone Definitions ----
@@ -113,6 +134,10 @@ assert(88*sim.dt/sim.dx <= 1, ...
     "CFL condition violated - reduce dt or increase dx")
 assert(abs(sum(MainCampus_access.taz_split) - 1.0) < 1e-6, ...
     "Campus access point TAZ splits must sum to 1.0")
+assert(mod(road2.length, sim.dx) == 0, ...
+    "Road 2 length must be divisible by sim.dx")
+assert(length(road2.seg_lanes) == 6, ...
+    "Road 2 must have exactly 6 lane segments defined")
 fprintf('Done checking for valid inputs...\n')
 
 % ====================================================================
@@ -308,6 +333,13 @@ MDOT_outflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
                     1500, 1000, 700, 450, 300, 220]; % [veh/hour]
 MDOT_inflow_s  = MDOT_inflow_hour  / 3600; % [veh/s]
 MDOT_outflow_s = MDOT_outflow_hour / 3600; % [veh/s]
+
+% Road 2 (NB): inflow enters from SOUTH boundary; outflow exits at NORTH boundary
+% NB peak pattern is approximately the reverse of SB (PM-heavy inflow, AM-heavy outflow)
+MDOT_inflow_hour_NB  = MDOT_outflow_hour; % [veh/hr] NB inflow mirrors SB outflow pattern
+MDOT_outflow_hour_NB = MDOT_inflow_hour;  % [veh/hr] NB outflow mirrors SB inflow pattern
+MDOT_inflow_s_NB  = MDOT_inflow_hour_NB  / 3600; % [veh/s]
+MDOT_outflow_s_NB = MDOT_outflow_hour_NB / 3600;  % [veh/s]
 fprintf('Done loading MDOT data...\n')
 
 % ====================================================================
@@ -359,25 +391,105 @@ ShoppingCenter_access.xSegment = find( ...
         x_edges(1:end-1) <= ShoppingCenter_access.xLocation & ...
         x_edges(2:end)   >  ShoppingCenter_access.xLocation, 1, 'first');
 access_combine.log = zeros(road.Nx, Nt); % [veh/ft/s] source/sink log for visualization
-fprintf('Done setting Up Simulation...\n')
+fprintf('Done setting up Road 1 (SB)...\n')
+
+% ====================================================================
+%% =========== Road 2 (Northbound) Simulation Setup ==================
+% ====================================================================
+road2.Nx     = road2.length / sim.dx;
+x_edges2     = 0:sim.dx:road2.length;
+x_centers2   = x_edges2(1:end-1) + sim.dx/2;
+
+% Speed limits for Road 2 (mirrored from Road 1)
+% SB 30 mph zone x=3501–5500 maps to NB x=1000–2999 → use x=1001–3000
+u_free2 = zeros(1, road2.Nx);
+idx_30_2 = x_centers2 >= 1001 & x_centers2 <= 3000; % 30 mph
+idx_40_2 = ~idx_30_2;                                % 40 mph
+u_free2(idx_30_2) = 30*mph_to_fts;
+u_free2(idx_40_2) = 40*mph_to_fts;
+FD2    = FD;   % same fundamental diagram model and jam density
+FD2.vf = u_free2;
+
+% Lane counts per segment for Road 2 (NB)
+N_lanes2 = zeros(1, road2.Nx);
+N_lanes2(x_centers2 >=    1 & x_centers2 <= 1000) = road2.seg_lanes(1); % 2 lanes
+N_lanes2(x_centers2 >= 1001 & x_centers2 <= 2000) = road2.seg_lanes(2); % 1 lane
+N_lanes2(x_centers2 >= 2001 & x_centers2 <= 3000) = road2.seg_lanes(3); % 3 lanes
+N_lanes2(x_centers2 >= 3001 & x_centers2 <= 3500) = road2.seg_lanes(4); % 4 lanes
+N_lanes2(x_centers2 >= 3501 & x_centers2 <= 4500) = road2.seg_lanes(5); % 3 lanes
+N_lanes2(x_centers2 >= 4501 & x_centers2 <= 6500) = road2.seg_lanes(6); % 4 lanes
+
+% Signal 2 setup
+signal2.cell   = find(x_centers2 >= signal2.x, 1);
+signal2.period = signal2.green + signal2.red;
+signal2.Qsat   = signal2.Qsat_per_lane * N_lanes2(signal2.cell);
+is_signal2     = false(1, road2.Nx);
+is_signal2(signal2.cell) = true;
+
+% Map Road 2 access points to road segments
+% Physical positions are mirrored: x_NB = road.length - x_SB
+% Sorted ascending so they appear south-to-north on the NB road
+MainCampus_access2.xLocation = sort(road.length - MainCampus_access.xLocation, 'ascend');
+%   NB: [1100, 2000, 3300, 4800] ft  (mirrors SB: [5400,4500,3200,1700])
+MainCampus_access2.name      = ["University Secondary Entrance 2", ...
+                                 "University Tertiary Entrance",    ...
+                                 "University Primary Entrance",     ...
+                                 "University Secondary Entrance 1"];
+MainCampus_access2.taz_split = [0.10, 0.20, 0.60, 0.10];
+
+ShoppingCenter_access2.xLocation = road.length - ShoppingCenter_access.xLocation;
+%   NB: 500 ft  (mirrors SB: 6000 ft)
+ShoppingCenter_access2.name = ShoppingCenter_access.name;
+
+NmainCampus_access2 = length(MainCampus_access2.xLocation);
+MainCampus_access2.xSegment = zeros(1, NmainCampus_access2);
+for k = 1:NmainCampus_access2
+    MainCampus_access2.xSegment(k) = find( ...
+        x_edges2(1:end-1) <= MainCampus_access2.xLocation(k) & ...
+        x_edges2(2:end)   >  MainCampus_access2.xLocation(k), 1, 'first');
+end
+NshoppingCenter_access2 = length(ShoppingCenter_access2.xLocation);
+ShoppingCenter_access2.xSegment = find( ...
+    x_edges2(1:end-1) <= ShoppingCenter_access2.xLocation & ...
+    x_edges2(2:end)   >  ShoppingCenter_access2.xLocation, 1, 'first');
+
+access_combine2.log = zeros(road2.Nx, Nt); % [veh/ft/s] source/sink log
+fprintf('Done setting up Road 2 (NB)...\n')
 
 % ====================================================================
 %% ================ Initialize State Variables =======================
 % ====================================================================
+% Road 1 (SB)
+rho = zeros(road.Nx,Nt);
 rho(:,1) = 0.6*FD.rho_c;
 rho(signal.cell-1:signal.cell+1, 1) = 0.9*FD.rho_c;
-F  = zeros(road.Nx+1, Nt);
-g = zeros(1,Nt-1);
-g_eff = zeros(road.Nx, Nt-1);
+F      = zeros(road.Nx+1, Nt);
+g      = zeros(1, Nt-1);
+g_eff  = zeros(road.Nx, Nt-1);
+
+% Road 2 (NB)
+rho2 = zeros(road2.Nx,Nt);
+rho2(:,1) = 0.6*FD2.rho_c;
+rho2(signal2.cell-1:signal2.cell+1, 1) = 0.9*FD2.rho_c;
+F2     = zeros(road2.Nx+1, Nt);
+g2     = zeros(1, Nt-1);
+g_eff2 = zeros(road2.Nx, Nt-1);
 fprintf('\n BEGIN SIMULATION \n')
 fprintf('==================\n')
 
 % ====================================================================
 %% ====================== Sim Solver Loop ============================
+% Both roads advance in parallel within a single time loop.
+% Road segment loops are independent and uncoupled.
 % ====================================================================
 for n = 1:Nt-1
     h = hourIndex(t(n));
     fprintf('Sim Time: %6.0f || Hour idx: %3.0f\n', t(n), h)
+
+    % ----------------------------------------------------------------
+    %% Road 1 (Southbound) — x=0 at North, x=6500 at South
+    % ----------------------------------------------------------------
+
     % Signal state
     if mod(t(n), signal.period) < signal.green
         g(n) = 1;
@@ -403,8 +515,7 @@ for n = 1:Nt-1
         S1 = FD.Q(rho(1,n), FD.vf(1));
     end
     F(1,n) = demand.V_taz_depart(4) * demand.f_depart(h,4) / 3600; % (veh/s) inbound flux across Northern Boundary
-    
-    
+
     % Downstream boundary (south outflow)
     if rho(road.Nx,n) <= FD.rho_c
         D_Nx = FD.Q(rho(road.Nx,n), FD.vf(end));
@@ -412,34 +523,91 @@ for n = 1:Nt-1
         D_Nx = FD.Q(FD.rho_c, FD.vf(end));
     end
     F(road.Nx+1,n) = demand.V_taz_arrive(5) * demand.f_arrive(h,5) / 3600; % (veh/s) outbound flux across Southern boundary
-    
+
     % Update density: LWR finite-volume + demand-model source/sink terms
     for i = 1:road.Nx
-        % source/sink term is zero if no sources or sinks are available
         s1 = 0;
         s2 = 0;
-        % Compute source/sink from 4-step demand model
         MainCampus_access_match = find(i == MainCampus_access.xSegment, 1, 'first');
         if ~isempty(MainCampus_access_match)
-            % q_arrive: vehicles leaving the arterial (sink, negative contribution)
-            % q_depart: vehicles entering the arterial (source, positive contribution)
             q_arr = demand.V_taz_arrive(1) * demand.f_arrive(h, 1) / 3600 * MainCampus_access.taz_split(MainCampus_access_match);
             q_dep = demand.V_taz_depart(1) * demand.f_depart(h, 1) / 3600 * MainCampus_access.taz_split(MainCampus_access_match);
-            % Net source term [veh/ft/s]: positive = adds vehicles to road
             s1 = (q_dep - q_arr) / sim.dx;
         end
         ShoppingCenter_access_match = find(i == ShoppingCenter_access.xSegment, 1, 'first');
         if ~isempty(ShoppingCenter_access_match)
             q_arr = demand.V_taz_arrive(2) * demand.f_arrive(h, 2) / 3600;
             q_dep = demand.V_taz_depart(2) * demand.f_depart(h, 2) / 3600;
-            % Net source term [veh/ft/s]: positive = adds vehicles to road
             s2 = (q_dep - q_arr) / sim.dx;
         end
-        % Sum source/sink terms
         s = s1 + s2;
         access_combine.log(i,n) = s;
         rho(i,n+1) = rho(i,n) - (sim.dt/sim.dx)*(F(i+1,n) - F(i,n)) + sim.dt*s;
     end
+
+    % ----------------------------------------------------------------
+    %% Road 2 (Northbound) — x=0 at South, x=6500 at North
+    % ----------------------------------------------------------------
+
+    % Signal state
+    if mod(t(n), signal2.period) < signal2.green
+        g2(n) = 1;
+    else
+        g2(n) = 0;
+    end
+
+    % Compute flux within boundaries
+    for i = 1:road2.Nx-1
+        F2_base = godunovFlux(FD2, rho2(i,n), rho2(i+1,n), FD2.vf(i), N_lanes2(i), 1);
+        if is_signal2(i)
+            F2(i+1,n) = min(F2_base, g2(n)*signal2.Qsat);
+        else
+            F2(i+1,n) = F2_base;
+        end
+        g_eff2(i,n) = is_signal2(i) * g2(n);
+    end
+
+    % Upstream boundary (south inflow for NB road)
+    if rho2(1,n) <= FD2.rho_c
+        S1_2 = FD2.Q(FD2.rho_c, FD2.vf(1));
+    else
+        S1_2 = FD2.Q(rho2(1,n), FD2.vf(1));
+    end
+    % SouthBoundary zone (index 5) departures heading north
+    F2(1,n) = demand.V_taz_depart(5) * demand.f_depart(h,5) / 3600;
+
+    % Downstream boundary (north outflow for NB road)
+    if rho2(road2.Nx,n) <= FD2.rho_c
+        D_Nx2 = FD2.Q(rho2(road2.Nx,n), FD2.vf(end));
+    else
+        D_Nx2 = FD2.Q(FD2.rho_c, FD2.vf(end));
+    end
+    % NorthBoundary zone (index 4) arrivals coming from south
+    F2(road2.Nx+1,n) = demand.V_taz_arrive(4) * demand.f_arrive(h,4) / 3600;
+
+    % Update density: LWR finite-volume + demand-model source/sink terms
+    for i = 1:road2.Nx
+        s_camp2 = 0;
+        s_shop2 = 0;
+        MainCampus_access_match2 = find(i == MainCampus_access2.xSegment, 1, 'first');
+        if ~isempty(MainCampus_access_match2)
+            q_arr2  = demand.V_taz_arrive(1) * demand.f_arrive(h,1) / 3600 ...
+                      * MainCampus_access2.taz_split(MainCampus_access_match2);
+            q_dep2  = demand.V_taz_depart(1) * demand.f_depart(h,1) / 3600 ...
+                      * MainCampus_access2.taz_split(MainCampus_access_match2);
+            s_camp2 = (q_dep2 - q_arr2) / sim.dx;
+        end
+        ShoppingCenter_access_match2 = find(i == ShoppingCenter_access2.xSegment, 1, 'first');
+        if ~isempty(ShoppingCenter_access_match2)
+            q_arr2  = demand.V_taz_arrive(2) * demand.f_arrive(h,2) / 3600;
+            q_dep2  = demand.V_taz_depart(2) * demand.f_depart(h,2) / 3600;
+            s_shop2 = (q_dep2 - q_arr2) / sim.dx;
+        end
+        s_total2 = s_camp2 + s_shop2;
+        access_combine2.log(i,n) = s_total2;
+        rho2(i,n+1) = rho2(i,n) - (sim.dt/sim.dx)*(F2(i+1,n) - F2(i,n)) + sim.dt*s_total2;
+    end
+
 end
 
 % ====================================================================
@@ -469,60 +637,106 @@ for i = 1:Nzones
     fprintf('%s\n', row);
 end
 
-%% Space-Time Density Diagram
-figure('Name','spaceTimeDiagram')
+%% Space-Time Density Diagrams
+figure('Name','spaceTimeDiagram_Road1')
 imagesc(t/3600, x_centers, rho)
 colorbar
 xlabel('Time [hr]')
 ylabel('Position [ft]')
-title('Space-Time Density Diagram')
+title(['Space-Time Density: ' road.name ' (Southbound)'])
 
-%% OD Tuning
-figure('Name', 'odTuning')
+figure('Name','spaceTimeDiagram_Road2')
+imagesc(t/3600, x_centers2, rho2)
+colorbar
+xlabel('Time [hr]')
+ylabel('Position [ft]')
+title(['Space-Time Density: ' road2.name ' (Northbound)'])
+
+%% OD Tuning – Road 1 (Southbound)
+figure('Name', 'odTuning_Road1')
 subplot(2,2,1)
 hold on
 plot(t,F(1,:),'r-','DisplayName','Incoming Flow (OD Model)')
 plot(t,[repelem(MDOT_inflow_s,3600),0],'b:','DisplayName','Incoming Flow (MDOT Truth Data)')
-hold off; ylabel('Flow (veh/s)'); title('North Boundary Inflow'); xlabel('time (s)'); grid on; legend();
+hold off; ylabel('Flow (veh/s)'); title('SB: North Boundary Inflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,2)
 northBoundary_inFlow_diff = F(1,:)-[repelem(MDOT_inflow_s,3600),0];
 plot(t,northBoundary_inFlow_diff,'r-','DisplayName','OD Model - MDOT Truth Data')
-title('Difference Between Model and Truth'); xlabel('time (s)'); grid on; legend();
+title('SB: Difference North Inflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,3)
 hold on
 plot(t,F(road.Nx+1,:),'r-','DisplayName','Outgoing Flow (OD Model)')
 plot(t,[repelem(MDOT_outflow_s,3600),0],'b:','DisplayName','Outgoing Flow (MDOT Truth Data)')
-hold off; ylabel('Flow (veh/s)'); title('South Boundary Outflow'); xlabel('time (s)'); grid on; legend();
+hold off; ylabel('Flow (veh/s)'); title('SB: South Boundary Outflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,4)
 southBoundary_outFlow_diff = F(road.Nx+1,:)-[repelem(MDOT_outflow_s,3600),0];
 plot(t,southBoundary_outFlow_diff,'r-','DisplayName','OD Model - MDOT Truth Data')
-title('DIfference Between Model and Truth'); xlabel('time (s)'); grid on; legend();
+title('SB: Difference South Outflow'); xlabel('time (s)'); grid on; legend();
 
-%% Signal Timing
+%% OD Tuning – Road 2 (Northbound)
+figure('Name', 'odTuning_Road2')
+subplot(2,2,1)
+hold on
+plot(t,F2(1,:),'r-','DisplayName','Incoming Flow (OD Model)')
+plot(t,[repelem(MDOT_inflow_s_NB,3600),0],'b:','DisplayName','Incoming Flow (MDOT Truth Data)')
+hold off; ylabel('Flow (veh/s)'); title('NB: South Boundary Inflow'); xlabel('time (s)'); grid on; legend();
+subplot(2,2,2)
+southBoundary_inFlow_diff2 = F2(1,:)-[repelem(MDOT_inflow_s_NB,3600),0];
+plot(t,southBoundary_inFlow_diff2,'r-','DisplayName','OD Model - MDOT Truth Data')
+title('NB: Difference South Inflow'); xlabel('time (s)'); grid on; legend();
+subplot(2,2,3)
+hold on
+plot(t,F2(road2.Nx+1,:),'r-','DisplayName','Outgoing Flow (OD Model)')
+plot(t,[repelem(MDOT_outflow_s_NB,3600),0],'b:','DisplayName','Outgoing Flow (MDOT Truth Data)')
+hold off; ylabel('Flow (veh/s)'); title('NB: North Boundary Outflow'); xlabel('time (s)'); grid on; legend();
+subplot(2,2,4)
+northBoundary_outFlow_diff2 = F2(road2.Nx+1,:)-[repelem(MDOT_outflow_s_NB,3600),0];
+plot(t,northBoundary_outFlow_diff2,'r-','DisplayName','OD Model - MDOT Truth Data')
+title('NB: Difference North Outflow'); xlabel('time (s)'); grid on; legend();
+
+%% Signal Timing – Road 1 (SB)
 signal_band = zeros(size(g_eff));
 g_signalPlot = g;
 g_signalPlot(g==0) = -1;
 signal_band(signal.cell, :) = g_signalPlot;
-figure('Name','signalSpaceTime')
+figure('Name','signalSpaceTime_Road1')
 imagesc(t/60, x_centers, signal_band)
 colormap([0.6 0 0;1 1 1; 0 0.6 0])
 clim([-1 1])
 colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
-xlabel('Time [min]')
-ylabel('Position [ft]')
-title('Signal Location and Timing')
+xlabel('Time [min]'); ylabel('Position [ft]')
+title(['Signal Location and Timing: ' road.name ' (Southbound)'])
 
-%% Road Geometry
+%% Signal Timing – Road 2 (NB)
+signal_band2 = zeros(size(g_eff2));
+g_signalPlot2 = g2;
+g_signalPlot2(g2==0) = -1;
+signal_band2(signal2.cell, :) = g_signalPlot2;
+figure('Name','signalSpaceTime_Road2')
+imagesc(t/60, x_centers2, signal_band2)
+colormap([0.6 0 0;1 1 1; 0 0.6 0])
+clim([-1 1])
+colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
+xlabel('Time [min]'); ylabel('Position [ft]')
+title(['Signal Location and Timing: ' road2.name ' (Northbound)'])
+
+%% Road Geometry – Road 1 (SB)
 access_combine.name = [MainCampus_access.name ShoppingCenter_access.name];
 access_combine.xLocation = [MainCampus_access.xLocation, ShoppingCenter_access.xLocation];
 access_combine.xSegment = [MainCampus_access.xSegment, ShoppingCenter_access.xSegment];
 plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access_combine);
 
-%% Net Source/Sink Contribution Along Corridor Over Time
-figure('Name','netSourceSinkLog')
+%% Road Geometry – Road 2 (NB)
+access_combine2.name = [MainCampus_access2.name ShoppingCenter_access2.name];
+access_combine2.xLocation = [MainCampus_access2.xLocation, ShoppingCenter_access2.xLocation];
+access_combine2.xSegment = [MainCampus_access2.xSegment, ShoppingCenter_access2.xSegment];
+plotRoadGeometry(sim, road2, x_edges2, x_centers2, N_lanes2, signal2, access_combine2);
+
+%% Net Source/Sink – Road 1 (SB)
+figure('Name','netSourceSinkLog_Road1')
 Naccess_combine = NmainCampus_access + NshoppingCenter_access;
 active_log = access_combine.log(access_combine.xSegment, :);
-for k = 1:Naccess_combine % add 1 for shopping center access
+for k = 1:Naccess_combine
     subplot(Naccess_combine, 1, k)
     plot(t/3600, active_log(k,:), 'LineWidth', 1)
     ylabel('[veh/ft/s]')
@@ -530,7 +744,21 @@ for k = 1:Naccess_combine % add 1 for shopping center access
     grid on
 end
 xlabel('Time [hr]')
-sgtitle('Net Source/Sink Term in LWR Equation [veh/ft/s]')
+sgtitle(['Net Source/Sink Term [veh/ft/s]: ' road.name ' (Southbound)'])
+
+%% Net Source/Sink – Road 2 (NB)
+figure('Name','netSourceSinkLog_Road2')
+Naccess_combine2 = NmainCampus_access2 + NshoppingCenter_access2;
+active_log2 = access_combine2.log(access_combine2.xSegment, :);
+for k = 1:Naccess_combine2
+    subplot(Naccess_combine2, 1, k)
+    plot(t/3600, active_log2(k,:), 'LineWidth', 1)
+    ylabel('[veh/ft/s]')
+    title(access_combine2.name(k), 'FontSize', 8)
+    grid on
+end
+xlabel('Time [hr]')
+sgtitle(['Net Source/Sink Term [veh/ft/s]: ' road2.name ' (Northbound)'])
 
 %% OD Matrix Heatmap
 figure('Name','odMatrixVehicleTripsDay')
@@ -630,7 +858,7 @@ function plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access
 
 max_lanes = max(N_lanes);
 
-figure('Name','roadGeometry','Color','w');
+figure('Name',['roadGeometry_' road.name],'Color','w');
 hold on;
 
 for i = 1:road.Nx
