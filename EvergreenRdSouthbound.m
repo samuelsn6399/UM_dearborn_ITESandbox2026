@@ -65,7 +65,7 @@ road.FD.vf = u_free;
 %% Initialize State Variables 
 road.rho = zeros(road.Nx,sim.Nt);
 road.rho(:,1) = 0.6*FD.rho_c;
-road.rho(road.signal.cell-1:road.signal.cell+1, 1) = 0.9*FD.rho_c;
+road.rho(max(1,road.signal.cell-1):min(road.Nx,road.signal.cell+1), 1) = 0.9*FD.rho_c;
 road.F      = zeros(road.Nx+1, sim.Nt);
 road.g      = zeros(1, sim.Nt-1);
 road.g_eff  = zeros(road.Nx, sim.Nt-1);

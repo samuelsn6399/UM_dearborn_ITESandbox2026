@@ -20,46 +20,47 @@
 %       ^ Qsat_per_lane
 %   ^ 
 % =====================================================================
-function road = LWRModel(road, demand, zone, sim)
+function [rho_next, F_n, g_n, g_eff_n, s_n] = LWRModel(road, rho_n, demand, zone, sim)
 % Signal state
 if mod(sim.t(sim.n), road.signal.period) < road.signal.green
-    road.g(sim.n) = 1;
+    g_n = 1;
 else
-    road.g(sim.n) = 0;
+    g_n = 0;
 end
 
-% Compute flux within boundaries
+% Compute interior fluxes
+F_n     = zeros(road.Nx+1, 1);
+g_eff_n = zeros(road.Nx, 1);
 for i = 1:road.Nx-1
-    F_base = godunovFlux(road.FD, road.FD.vf(i), road.rho(i,sim.n), road.rho(i+1,sim.n), road.N_lanes(i));
+    F_base = godunovFlux(road.FD, road.FD.vf(i), rho_n(i), rho_n(i+1), road.N_lanes(i));
     if road.is_signal(i)
-        road.F(i+1,sim.n) = min(F_base, road.g(sim.n)*road.signal.Qsat);
+        F_n(i+1) = min(F_base, g_n * road.signal.Qsat);
     else
-        road.F(i+1,sim.n) = F_base;
+        F_n(i+1) = F_base;
     end
-    road.g_eff(i,sim.n) = road.is_signal(i) * road.g(sim.n);
+    g_eff_n(i) = road.is_signal(i) * g_n;
 end
 
-% Upstream boundary
-road.F(1,sim.n) = demand.V_taz_depart(road.boundary_idx(1)) * zone.f_depart(sim.h,road.boundary_idx(1)) / 3600; % (veh/s) inbound flux across Northern Boundary
+% Boundary fluxes
+F_n(1)         = demand.V_taz_depart(road.boundary_idx(1)) * zone.f_depart(sim.h, road.boundary_idx(1)) / 3600; % (veh/s) inbound flux across upstream boundary
+F_n(road.Nx+1) = demand.V_taz_arrive(road.boundary_idx(2)) * zone.f_arrive(sim.h, road.boundary_idx(2)) / 3600; % (veh/s) outbound flux across downstream boundary
 
-% Downstream boundary; possible problem for cases where boundary is not removing cars fast enough
-% possible solution is to let cars flow freely out of the boundary rather than coding a value
-road.F(road.Nx+1,sim.n) = demand.V_taz_arrive(road.boundary_idx(2)) * zone.f_arrive(sim.h,road.boundary_idx(2)) / 3600; % (veh/s) outbound flux across Southern boundary
-
-Nsource = length(road.AccessPoints); % number of TAZ's with access points on the road
-% Update density: LWR finite-volume + demand-model source/sink terms
+% Source/sink and density update
+Nsource  = length(road.AccessPoints);
+s_n      = zeros(road.Nx, 1);
+rho_next = zeros(road.Nx, 1);
 for i = 1:road.Nx
-    s_n = zeros(1, Nsource); % reset each segment: only one source per TAZ is tracked
+    s_i = zeros(1, Nsource);
     for j = 1:Nsource
         access_match = find(i == road.AccessPoints(j).xSegment, 1, 'first');
         if ~isempty(access_match)
             q_arr = demand.V_taz_arrive(road.AccessPoints(j).taz_idx) * zone.f_arrive(sim.h, road.AccessPoints(j).taz_idx) / 3600 * road.AccessPoints(j).split(access_match); % [veh/s]
             q_dep = demand.V_taz_depart(road.AccessPoints(j).taz_idx) * zone.f_depart(sim.h, road.AccessPoints(j).taz_idx) / 3600 * road.AccessPoints(j).split(access_match); % [veh/s]
-            s_n(j) = (q_dep - q_arr) / sim.dx; % [veh/s/ft]
+            s_i(j) = (q_dep - q_arr) / sim.dx; % [veh/s/ft]
         end
     end
-    road.s(i,sim.n) = sum(s_n); % [veh/s/ft] total source and sink effects at a road segment
-    road.rho(i,sim.n+1) = road.rho(i,sim.n) - (sim.dt/sim.dx)*(road.F(i+1,sim.n) - road.F(i,sim.n)) + sim.dt*road.s(i,sim.n); % [veh/ft]
+    s_n(i)      = sum(s_i); % [veh/s/ft]
+    rho_next(i) = rho_n(i) - (sim.dt/sim.dx) * (F_n(i+1) - F_n(i)) + sim.dt * s_n(i); % [veh/ft]
 end
 end
 

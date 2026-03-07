@@ -149,21 +149,47 @@ fprintf('Done loading MDOT data...\n')
 % All roads advance in parallel within a single time loop.
 % Road segment loops are independent and uncoupled.
 % ====================================================================
+% Extract state matrices before loop to avoid copy-on-write overhead
+rho_SB = evergreenRdSouthbound.rho;   F_SB    = evergreenRdSouthbound.F;
+g_SB   = evergreenRdSouthbound.g;     g_eff_SB = evergreenRdSouthbound.g_eff;
+s_SB   = evergreenRdSouthbound.s;
+evergreenRdSouthbound = rmfield(evergreenRdSouthbound, {'rho','F','g','g_eff','s'});
+
+rho_NB = evergreenRdNorthbound.rho;   F_NB    = evergreenRdNorthbound.F;
+g_NB   = evergreenRdNorthbound.g;     g_eff_NB = evergreenRdNorthbound.g_eff;
+s_NB   = evergreenRdNorthbound.s;
+evergreenRdNorthbound = rmfield(evergreenRdNorthbound, {'rho','F','g','g_eff','s'});
+
 fprintf('==================\n')
 fprintf('\n BEGIN SIMULATION \n')
 fprintf('==================\n')
+sim_tic = tic;
 for n = 1:sim.Nt-1
     sim.n = n;
     sim.h = hourIndex(sim.t(n));
-    fprintf('Sim Time: %6.0f || Hour idx: %3.0f\n', sim.t(n), sim.h)
+    if mod(n-1, 3600) == 0
+        fprintf('Sim Hour: %2d / 24  (wall time: %.1f s)\n', sim.h, toc(sim_tic))
+    end
     %% Road 1 (Southbound) — x=0 at North, x=6500 at South
     % ----------------------------------------------------------------
-    evergreenRdSouthbound = LWRModel(evergreenRdSouthbound,classicTrafficDemandModel,TAZ,sim);
+    [rho_SB(:,n+1), F_SB(:,n), g_SB(n), g_eff_SB(:,n), s_SB(:,n)] = ...
+        LWRModel(evergreenRdSouthbound, rho_SB(:,n), classicTrafficDemandModel, TAZ, sim);
 
     %% Road 2 (Northbound) — x=0 at South, x=6500 at North
     % ----------------------------------------------------------------
-    evergreenRdNorthbound = LWRModel(evergreenRdNorthbound,classicTrafficDemandModel,TAZ,sim);
+    [rho_NB(:,n+1), F_NB(:,n), g_NB(n), g_eff_NB(:,n), s_NB(:,n)] = ...
+        LWRModel(evergreenRdNorthbound, rho_NB(:,n), classicTrafficDemandModel, TAZ, sim);
 end
+fprintf('Simulation complete. Wall time: %.1f s\n', toc(sim_tic))
+
+% Restore state matrices to road structs for plotting
+evergreenRdSouthbound.rho = rho_SB; evergreenRdSouthbound.F = F_SB;
+evergreenRdSouthbound.g   = g_SB;   evergreenRdSouthbound.g_eff = g_eff_SB;
+evergreenRdSouthbound.s   = s_SB;
+
+evergreenRdNorthbound.rho = rho_NB; evergreenRdNorthbound.F = F_NB;
+evergreenRdNorthbound.g   = g_NB;   evergreenRdNorthbound.g_eff = g_eff_NB;
+evergreenRdNorthbound.s   = s_NB;
 
 % ====================================================================
 %% ======================== Plot Results =============================
