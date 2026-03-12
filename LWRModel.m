@@ -20,7 +20,7 @@
 %       ^ Qsat_per_lane
 %   ^ 
 % =====================================================================
-function [rho_next, F_n, g_n, g_eff_n, s_n] = LWRModel(road, rho_n, demand, zone, sim)
+function [rho_next, F_n, F_n_desired, g_n, g_eff_n, s_n] = LWRModel(road, rho_n, demand, zone, sim)
 % Signal state
 if mod(sim.t(sim.n), road.signal.period) < road.signal.green
     g_n = 1;
@@ -41,9 +41,26 @@ for i = 1:road.Nx-1
     g_eff_n(i) = road.is_signal(i) * g_n;
 end
 
-% Boundary fluxes
-F_n(1)         = demand.V_taz_depart(road.boundary_idx(1)) * zone.f_depart(sim.h, road.boundary_idx(1)) / 3600; % (veh/s) inbound flux across upstream boundary
-F_n(road.Nx+1) = demand.V_taz_arrive(road.boundary_idx(2)) * zone.f_arrive(sim.h, road.boundary_idx(2)) / 3600; % (veh/s) outbound flux across downstream boundary
+% Upstream Boundary Fluxes (Inflow)
+% Saturatation function for backlog at first road segment
+if rho_n(1) <= road.FD.rho_c
+    S1 = road.FD.Q(road.FD.rho_c, road.FD.vf(1));
+else
+    S1 = road.FD.Q(rho_n(1), road.FD.vf(1));
+end
+F_n_desired(1) = demand.V_taz_depart(road.idx,road.boundary_idx(1)) * zone.f_depart(sim.h, road.boundary_idx(1)) / 3600; % OD model inbound flux
+F_n(1) = min(F_n_desired(1), S1*road.N_lanes(1)); % (veh/s) inbound flux across upstream boundary
+
+% Downstream Boundary Fluxes (Outflow)
+% Saturatation function to prevent black hole effect at the exit boundary
+if rho_n(road.Nx) <= road.FD.rho_c
+    D_Nx = road.FD.Q(rho_n(road.Nx), road.FD.vf(road.Nx));
+else
+    D_Nx = road.FD.Q(road.FD.rho_c, road.FD.vf(road.Nx));
+end
+F_n_desired(2) = demand.V_taz_arrive(road.idx,road.boundary_idx(2)) * zone.f_arrive(sim.h, road.boundary_idx(2)) / 3600; % OD model outbound flux
+% F_n(road.Nx+1) = min(F_n_desired(2), D_Nx*road.N_lanes(road.Nx)); % (veh/s) outbound flux across downstream boundary
+F_n(road.Nx+1) = D_Nx*road.N_lanes(road.Nx); % (veh/s) outbound flux across downstream boundary
 
 % Source/sink and density update
 Nsource  = length(road.AccessPoints);
@@ -51,16 +68,33 @@ s_n      = zeros(road.Nx, 1);
 rho_next = zeros(road.Nx, 1);
 for i = 1:road.Nx
     s_i = zeros(1, Nsource);
+    % calculate s_i; a vector containing the net source and sinks at a
+    % segment
     for j = 1:Nsource
         access_match = find(i == road.AccessPoints(j).xSegment, 1, 'first');
         if ~isempty(access_match)
-            q_arr = demand.V_taz_arrive(road.AccessPoints(j).taz_idx) * zone.f_arrive(sim.h, road.AccessPoints(j).taz_idx) / 3600 * road.AccessPoints(j).split(access_match); % [veh/s]
-            q_dep = demand.V_taz_depart(road.AccessPoints(j).taz_idx) * zone.f_depart(sim.h, road.AccessPoints(j).taz_idx) / 3600 * road.AccessPoints(j).split(access_match); % [veh/s]
-            s_i(j) = (q_dep - q_arr) / sim.dx; % [veh/s/ft]
+            q_arr = demand.V_taz_arrive(road.idx,road.AccessPoints(j).taz_idx) * zone.f_arrive(sim.h, road.AccessPoints(j).taz_idx) / 3600 * road.AccessPoints(j).split(access_match); % [veh/s]
+            q_dep = demand.V_taz_depart(road.idx,road.AccessPoints(j).taz_idx) * zone.f_depart(sim.h, road.AccessPoints(j).taz_idx) / 3600 * road.AccessPoints(j).split(access_match); % [veh/s]
+            s_i(j) = (q_dep - q_arr); % [veh/s]
         end
     end
-    s_n(i)      = sum(s_i); % [veh/s/ft]
-    rho_next(i) = rho_n(i) - (sim.dt/sim.dx) * (F_n(i+1) - F_n(i)) + sim.dt * s_n(i); % [veh/ft]
+    % append intersection net source and sink effects to s_i
+    % intersection(1) because only one intersection point per road
+    intersection_match = find(i == road.intersection(1).xSegment, 1, 'first');
+    if ~isempty(intersection_match)
+        NtazExternal = length(road.intersection(1).taz_idx_external);
+        for k = 1:NtazExternal
+            q_arr_intersection = demand.V_taz_arrive(road.idx, road.intersection(1).taz_idx_external(k)) * zone.f_arrive(sim.h, road.intersection(1).taz_idx_external(k)) / 3600; % [veh/s]
+            q_dep_intersection = demand.V_taz_depart(road.idx, road.intersection(1).taz_idx_external(k)) * zone.f_depart(sim.h, road.intersection(1).taz_idx_external(k)) / 3600; % [veh/s]
+            s_i(end + k) = (q_dep_intersection - q_arr_intersection); % [veh/s]
+        end
+    end
+    s_n(i)      = sum(s_i); % [veh/s]
+    F_n_net = F_n(i) - F_n(i+1);
+    rho_next(i) = rho_n(i) + (sim.dt/sim.dx)*(F_n_net + s_n(i)); % [veh/ft]
+    if rho_next(i) < 0
+        rho_next(i) = 0; % Set density to zero if it becomes negative
+    end
 end
 end
 

@@ -34,6 +34,7 @@ demand.attr_rates = [1.5,    ...  % [person-trips/job/day]
 % beta controls how sensitive trip distribution is to travel time
 demand.v_avg_mph = 35;                  % [mph] average corridor travel speed
 demand.beta      = 0.12;               % [1/min] friction factor decay rate
+demand.gravity_on_off = false;              % false = turn off gravity model
 
 % ---- Step 3 Parameters: Mode Choice ----
 demand.auto_occupancy = 1.25;           % [persons/vehicle] average occupancy
@@ -100,7 +101,7 @@ H_list = {H_mainCampus, H_shoppingCenter, H_studentHousing, ...
           H_northBoundary, H_southBoundary, H_eastBoundary};
 R_list = {R_mainCampus, R_shoppingCenter, R_studentHousing, ...
           R_northBoundary, R_southBoundary, R_eastBoundary};
-Nzones = length(zone.names);
+Nzones = numel(zone.names);
 demand.P = zeros(1, Nzones);
 for iz = 1:Nzones
     demand.P(iz) = sum(H_list{iz} .* R_list{iz}, 'all');
@@ -125,22 +126,31 @@ demand.A = demand.A_raw * (P_total / A_total); % [person-trips/day] balanced
 % t_ij = travel time between zone centroids [min]
 v_avg_fts = demand.v_avg_mph * 5280 / 3600; % [ft/s]
 
-F_matrix = zeros(Nzones, Nzones);
-for i = 1:Nzones
-    for j = 1:Nzones
-        d_ij = sqrt( (zone.xLocation(i) - zone.xLocation(j))^2 + ...
-                     (zone.yLocation(i) - zone.yLocation(j))^2 ); % [ft]
-        t_ij = d_ij / v_avg_fts / 60; % [min]
-        t_ij = max(t_ij, 1.0); % minimum 1-minute intrazonal travel time
-        F_matrix(i,j) = exp(-demand.beta * t_ij);
+if demand.gravity_on_off
+    F_matrix = zeros(Nzones, Nzones);
+    for i = 1:Nzones % origin idx
+        for j = 1:Nzones % destination idx
+            if i == j
+                F_matrix(i,j) = 0; % no internal zone travel modeled
+            else
+                d_ij = sqrt( (zone.xLocation(i) - zone.xLocation(j))^2 + ...
+                            (zone.yLocation(i) - zone.yLocation(j))^2 ); % [ft]
+                t_ij = d_ij / v_avg_fts / 60; % [min]
+                t_ij = max(t_ij, 1.0); % minimum 1-minute intrazonal travel time
+                F_matrix(i,j) = exp(-demand.beta * t_ij);
+            end
+            
+        end
     end
+else
+    F_matrix = ones(Nzones, Nzones) - diag(ones(1,Nzones)); % evenly distributed friction; no internal zone travel
 end
 
 demand.T_person = zeros(Nzones, Nzones); % [person-trips/day] OD table
-for i = 1:Nzones
-    denom = sum(demand.A .* F_matrix(i,:));
+for i = 1:Nzones % origin idx
+    denom = sum(demand.A' .* F_matrix(i,:));
     if denom > 0
-        demand.T_person(i,:) = demand.P(i) * (demand.A .* F_matrix(i,:)) / denom;
+        demand.T_person(i,:) = demand.P(i) .* (demand.A' .* F_matrix(i,:)) / denom;
     end
 end
 
@@ -151,22 +161,47 @@ end
 demand.T_vehicle = demand.T_person / demand.auto_occupancy; % [veh/day] OD table
 
 %% Step 4: Network Loading (Map OD Matrix to Corridor Source/Sink Flows)
-% For each internal TAZ (MainCampus=1, ShoppingCenter=2):
-%   Daily corridor arrivals (SINK) = vehicles attracted from external zones
-%                                    that traveled along this corridor
-%   Daily corridor departures (SOURCE) = vehicles produced at this TAZ
-%                                        that depart via this corridor
+% Create accessibility matrix; assign O-D matrix entry to a corridor
+evergreenRdSouthBound_OD_access = [0 1 0 0 1 0; % 1 = OD entry applies
+                                   0 0 0 0 1 0; % 0 = OD entry does NOT apply
+                                   1 1 0 0 1 0;
+                                   1 1 1 0 1 1;
+                                   0 0 0 0 0 0;
+                                   1 1 0 0 1 0];
+evergreenRdNorthBound_OD_access = evergreenRdSouthBound_OD_access';
+% HubbardRdEastBound_OD_acces = [0 0 1 0 0 1;
+%                                0 0 1 0 0 1;
+%                                0 0 0 0 0 1;
+%                                0 0 1 0 0 1;
+%                                0 0 1 0 0 1;
+%                                0 0 0 0 0 0];
+% HubbardRdWestBound_OD_acces = HubbardRdEastBound_OD_acces';
+OD_access(:,:,1) = evergreenRdSouthBound_OD_access; % idx 1 = evergreen southbound
+OD_access(:,:,2) = evergreenRdNorthBound_OD_access; % idx 2 = evergreen northbound
 
 % Daily vehicle trips arriving at / departing from each TAZ
 % Arrivals: sum of T_vehicle(other_taz -> this_taz) for each k
 % Departures: sum of T_vehicle(this_taz -> other_taz) for each k
-demand.V_taz_arrive = zeros(1, Nzones); % [veh/day]
-demand.V_taz_depart = zeros(1, Nzones); % [veh/day]
-for k = 1:Nzones
-    this_taz = k;
-    other_taz = ismember(1:Nzones, k);
-    demand.V_taz_arrive(this_taz) = sum(demand.T_vehicle(other_taz, this_taz));
-    demand.V_taz_depart(this_taz) = sum(demand.T_vehicle(this_taz, other_taz));
+Nroads = 2; % evergreen rd north and south bound
+demand.V_taz_arrive = zeros(Nroads, Nzones); % [veh/day]
+demand.V_taz_depart = zeros(Nroads, Nzones); % [veh/day]
+for l = 1:Nroads
+    this_road = l;
+    for k = 1:Nzones
+        this_taz = k;
+        other_taz = ~ismember(1:Nzones, k);
+        demand.V_taz_arrive(this_road,this_taz) = sum(demand.T_vehicle(other_taz, this_taz).*OD_access(other_taz, this_taz, this_road));
+        demand.V_taz_depart(this_road,this_taz) = sum(demand.T_vehicle(this_taz, other_taz).*OD_access(this_taz, other_taz, this_road));
+    end
 end
+% TODO:
+%    - Network loading must account for 4 different roads to load
+%    - The OD matrix needs to be further mapped to individual roads
+%    - i.e. Origin: Shopping Center; Destination: Campus
+%        - Expect to only load the Northbound road, rather than applying the source to both South and Northbound
+
+% TODO:
+%   - For trips that start on one road and end on another, become local sinks on the origin road at the intersection
+%   - Develop turning ratio from number of cars passing through an intersection that turn on to the other road
 
 end

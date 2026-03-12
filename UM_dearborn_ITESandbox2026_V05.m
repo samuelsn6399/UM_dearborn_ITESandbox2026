@@ -95,11 +95,11 @@ for k = 1:Nzones
     TAZ.f_depart(:, k) = f_norm_dep(:);
 end
 
-%% Setup Access Points for each TAZ 
+%% Setup Access Points for each TAZ and Intersection
 % ---- Access Point Definitions ----
 % These define driveway locations where vehicles enter/exit
 % the arterial. A TAZ can be split between multiple access points.
-%% User defines access points here — one entry per TAZ-road connection
+% one entry per TAZ-road connection
 TAZ.AccessPoints(1).taz_idx  = 1;                    % index into TAZ.names (MainCampus)
 TAZ.AccessPoints(1).roadName = evergreenRdSouthbound.name;
 TAZ.AccessPoints(1).xLocal   = [1700, 3200, 4500, 5400]; % [ft] in road-local coords
@@ -131,9 +131,24 @@ TAZ.AccessPoints(4).split    = 1;
 TAZ.AccessPoints(4).name     = "Shopping Center";
 fprintf('Done configuring TAZs...\n')
 
-%% Map TAZ Access Points Road Segments
+% ---- Intersection Point Definitions ----
+% These define locations where vehicles enter/exit the arterial at an 
+% intersection. An intersection connection is split between 2 possible
+% road choices, assuming no u-turns and a T-intersection.
+% one entry per road at intersection
+intersection(1).roadName = evergreenRdSouthbound.name;
+intersection(1).xLocal = 2100;
+intersection(1).taz_idx_external = [3,6]; % TAZ's not located on the coridor that must pass through the intersection
+
+intersection(2).roadName = evergreenRdNorthbound.name;
+intersection(2).xLocal = 4400;
+intersection(2).taz_idx_external = [3,6]; % TAZ's not located on the coridor that must pass through the intersection
+
+%% Map TAZ Access Points and Intersections to Road Segments
 evergreenRdSouthbound = mapAccessPoints(evergreenRdSouthbound, TAZ);
+evergreenRdSouthbound = mapIntersectionPoints(evergreenRdSouthbound, intersection);
 evergreenRdNorthbound = mapAccessPoints(evergreenRdNorthbound, TAZ);
+evergreenRdNorthbound = mapIntersectionPoints(evergreenRdNorthbound, intersection);
 
 %% Load (4-Step) Classic Traffic Demand Model
 classicTrafficDemandModel = ClassicTrafficDemandModel(TAZ);
@@ -151,11 +166,13 @@ fprintf('Done loading MDOT data...\n')
 % ====================================================================
 % Extract state matrices before loop to avoid copy-on-write overhead
 rho_SB = evergreenRdSouthbound.rho;   F_SB    = evergreenRdSouthbound.F;
+F_SB_desired = evergreenRdSouthbound.F_desired;
 g_SB   = evergreenRdSouthbound.g;     g_eff_SB = evergreenRdSouthbound.g_eff;
 s_SB   = evergreenRdSouthbound.s;
 evergreenRdSouthbound = rmfield(evergreenRdSouthbound, {'rho','F','g','g_eff','s'});
 
 rho_NB = evergreenRdNorthbound.rho;   F_NB    = evergreenRdNorthbound.F;
+F_NB_desired = evergreenRdNorthbound.F_desired;
 g_NB   = evergreenRdNorthbound.g;     g_eff_NB = evergreenRdNorthbound.g_eff;
 s_NB   = evergreenRdNorthbound.s;
 evergreenRdNorthbound = rmfield(evergreenRdNorthbound, {'rho','F','g','g_eff','s'});
@@ -172,22 +189,24 @@ for n = 1:sim.Nt-1
     end
     %% Road 1 (Southbound) — x=0 at North, x=6500 at South
     % ----------------------------------------------------------------
-    [rho_SB(:,n+1), F_SB(:,n), g_SB(n), g_eff_SB(:,n), s_SB(:,n)] = ...
+    [rho_SB(:,n+1), F_SB(:,n), F_SB_desired(:,n), g_SB(n), g_eff_SB(:,n), s_SB(:,n)] = ...
         LWRModel(evergreenRdSouthbound, rho_SB(:,n), classicTrafficDemandModel, TAZ, sim);
 
     %% Road 2 (Northbound) — x=0 at South, x=6500 at North
     % ----------------------------------------------------------------
-    [rho_NB(:,n+1), F_NB(:,n), g_NB(n), g_eff_NB(:,n), s_NB(:,n)] = ...
+    [rho_NB(:,n+1), F_NB(:,n), F_NB_desired(:,n), g_NB(n), g_eff_NB(:,n), s_NB(:,n)] = ...
         LWRModel(evergreenRdNorthbound, rho_NB(:,n), classicTrafficDemandModel, TAZ, sim);
 end
 fprintf('Simulation complete. Wall time: %.1f s\n', toc(sim_tic))
 
 % Restore state matrices to road structs for plotting
 evergreenRdSouthbound.rho = rho_SB; evergreenRdSouthbound.F = F_SB;
+evergreenRdSouthbound.F_desired = F_SB_desired;
 evergreenRdSouthbound.g   = g_SB;   evergreenRdSouthbound.g_eff = g_eff_SB;
 evergreenRdSouthbound.s   = s_SB;
 
 evergreenRdNorthbound.rho = rho_NB; evergreenRdNorthbound.F = F_NB;
+evergreenRdNorthbound.F_desired = F_NB_desired;
 evergreenRdNorthbound.g   = g_NB;   evergreenRdNorthbound.g_eff = g_eff_NB;
 evergreenRdNorthbound.s   = s_NB;
 
@@ -237,7 +256,8 @@ title(['Space-Time Density: ' evergreenRdNorthbound.name])
 figure('Name', 'odTuning_Road1')
 subplot(2,2,1)
 hold on
-plot(sim.t, evergreenRdSouthbound.F(1,:), 'r-', 'DisplayName', 'Incoming Flow (OD Model)')
+plot(sim.t, evergreenRdSouthbound.F(1,:), 'r-', 'DisplayName', 'Incoming Flow (Actual OD Model)')
+plot(sim.t, evergreenRdSouthbound.F_desired(1,:), 'r:', 'DisplayName', 'Incoming Flow (Desired OD Model)')
 plot(sim.t, [repelem(evergreenRdSouthbound.Truth.MDOT_inflow_s, 3600), 0], 'b:', 'DisplayName', 'Incoming Flow (MDOT Truth Data)')
 hold off; ylabel('Flow (veh/s)'); title('SB: North Boundary Inflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,2)
@@ -245,7 +265,8 @@ plot(sim.t, evergreenRdSouthbound.F(1,:) - [repelem(evergreenRdSouthbound.Truth.
 title('SB: Difference North Inflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,3)
 hold on
-plot(sim.t, evergreenRdSouthbound.F(evergreenRdSouthbound.Nx+1,:), 'r-', 'DisplayName', 'Outgoing Flow (OD Model)')
+plot(sim.t, evergreenRdSouthbound.F(evergreenRdSouthbound.Nx+1,:), 'r-', 'DisplayName', 'Outgoing Flow (Actual OD Model)')
+plot(sim.t, evergreenRdSouthbound.F_desired(2,:), 'r:', 'DisplayName', 'Incoming Flow (Desired OD Model)')
 plot(sim.t, [repelem(evergreenRdSouthbound.Truth.MDOT_outflow_s, 3600), 0], 'b:', 'DisplayName', 'Outgoing Flow (MDOT Truth Data)')
 hold off; ylabel('Flow (veh/s)'); title('SB: South Boundary Outflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,4)
@@ -256,7 +277,8 @@ title('SB: Difference South Outflow'); xlabel('time (s)'); grid on; legend();
 figure('Name', 'odTuning_Road2')
 subplot(2,2,1)
 hold on
-plot(sim.t, evergreenRdNorthbound.F(1,:), 'r-', 'DisplayName', 'Incoming Flow (OD Model)')
+plot(sim.t, evergreenRdNorthbound.F(1,:), 'r-', 'DisplayName', 'Incoming Flow (Actual OD Model)')
+plot(sim.t, evergreenRdNorthbound.F_desired(1,:), 'r:', 'DisplayName', 'Incoming Flow (Desired OD Model)')
 plot(sim.t, [repelem(evergreenRdNorthbound.Truth.MDOT_inflow_s, 3600), 0], 'b:', 'DisplayName', 'Incoming Flow (MDOT Truth Data)')
 hold off; ylabel('Flow (veh/s)'); title('NB: South Boundary Inflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,2)
@@ -264,7 +286,8 @@ plot(sim.t, evergreenRdNorthbound.F(1,:) - [repelem(evergreenRdNorthbound.Truth.
 title('NB: Difference South Inflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,3)
 hold on
-plot(sim.t, evergreenRdNorthbound.F(evergreenRdNorthbound.Nx+1,:), 'r-', 'DisplayName', 'Outgoing Flow (OD Model)')
+plot(sim.t, evergreenRdNorthbound.F(evergreenRdNorthbound.Nx+1,:), 'r-', 'DisplayName', 'Outgoing Flow (Actual OD Model)')
+plot(sim.t, evergreenRdNorthbound.F_desired(2,:), 'r:', 'DisplayName', 'Outgoing Flow (Desired OD Model)')
 plot(sim.t, [repelem(evergreenRdNorthbound.Truth.MDOT_outflow_s, 3600), 0], 'b:', 'DisplayName', 'Outgoing Flow (MDOT Truth Data)')
 hold off; ylabel('Flow (veh/s)'); title('NB: North Boundary Outflow'); xlabel('time (s)'); grid on; legend();
 subplot(2,2,4)
@@ -487,6 +510,30 @@ for k = 1:length(road.AccessPoints)
         road.AccessPoints(k).xSegment(p) = find( ...
             road.x_edges(1:end-1) <= road.AccessPoints(k).xLocal(p) & ...
             road.x_edges(2:end)   >  road.AccessPoints(k).xLocal(p), 1, 'first');
+    end
+end
+end
+
+function road = mapIntersectionPoints(road, intersection)
+% mapAccessPoints
+% Filters intersection by road name and resolves each access point's
+% local x-coordinate to its corresponding finite-volume segment index.
+%
+% INPUTS:
+%   road  - struct with .name, .x_edges (from EvergreenRd*() constructors)
+%   intersection   - struct
+% OUTPUT:
+%   road  - same struct with .intersection field populated
+
+matching = find(strcmp({intersection.roadName}, road.name));
+road.intersection = intersection(matching);
+for k = 1:length(road.intersection)
+    Np = length(road.intersection(k).xLocal);
+    road.intersection(k).xSegment = zeros(1, Np);
+    for p = 1:Np
+        road.intersection(k).xSegment(p) = find( ...
+            road.x_edges(1:end-1) <= road.intersection(k).xLocal(p) & ...
+            road.x_edges(2:end)   >  road.intersection(k).xLocal(p), 1, 'first');
     end
 end
 end

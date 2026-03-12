@@ -22,6 +22,7 @@
 function road = EvergreenRdSouthbound(sim, FD)
 %% Configure Road Geometry (User Input)
 road.name = 'Evergreen Rd Southbound';
+road.idx = 1;
 road.length = 6500;     % [ft]
 road.Nx = road.length/sim.dx;               % number of road segments
 road.x_edges = 0:sim.dx:road.length;             % cell boundaries
@@ -64,9 +65,10 @@ road.FD.vf = u_free;
 
 %% Initialize State Variables 
 road.rho = zeros(road.Nx,sim.Nt);
-road.rho(:,1) = 0.6*FD.rho_c;
-road.rho(max(1,road.signal.cell-1):min(road.Nx,road.signal.cell+1), 1) = 0.9*FD.rho_c;
+road.rho(:,1) = 0.01*FD.rho_c;
+road.rho(max(1,road.signal.cell-1):min(road.Nx,road.signal.cell+1), 1) = 0.01*FD.rho_c;
 road.F      = zeros(road.Nx+1, sim.Nt);
+road.F_desired      = zeros(2, sim.Nt); % [input_1; output_1 ... input_n; output_n] unsaturated OD model values
 road.g      = zeros(1, sim.Nt-1);
 road.g_eff  = zeros(road.Nx, sim.Nt-1);
 road.s      = zeros(road.Nx,sim.Nt);
