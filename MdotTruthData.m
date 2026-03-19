@@ -60,11 +60,41 @@ elseif roadway == "Evergreen Rd Northbound"
     ...%        hour = [19    20   21   22   23   24 ]
                         1200, 800, 500, 350, 250, 200]; % [veh/hour]
 elseif roadway == "Hubbard Rd Eastbound"
-    MDOT_inflow_hour = zeros(1,24);
-    MDOT_outflow_hour = zeros(1,24);
+    %           hour = [1    2    3    4    5     6 ]
+    MDOT_inflow_hour = [200, 180, 160, 150, 200, 500,... % [veh/hour]
+    ...%        hour = [7     8     9     10    11    12 ]
+                        1200, 1800, 1500, 1100, 1000, 900,... % [veh/hour]
+    ...%        hour = [13   14    15    16    17    18  ]
+                        950, 1000, 1100, 1600, 1900, 1700,... % [veh/hour]
+    ...%        hour = [19    20   21   22   23   24 ]
+                        1200, 800, 500, 350, 250, 200]; % [veh/hour]
+
+    %           hour = [1    2    3    4    5    6  ]
+    MDOT_outflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
+    ...%        hour = [7     8     9     10    11    12 ]
+                        1000, 1600, 1700, 1300, 1200, 1100,... % [veh/hour]
+    ...%        hour = [13    14    15    16    17    18  ]
+                        1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
+    ...%        hour = [19    20    21   22   23   24 ]
+                        1500, 1000, 700, 450, 300, 220]; % [veh/hour]
 elseif roadway == "Hubbard Rd Westbound"
-    MDOT_inflow_hour = zeros(1,24);
-    MDOT_outflow_hour = zeros(1,24);
+    %           hour = [1    2    3    4    5    6  ]
+    MDOT_inflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
+    ...%        hour = [7     8     9     10    11    12 ]
+                        1000, 1600, 1700, 1300, 1200, 1100,... % [veh/hour]
+    ...%        hour = [13    14    15    16    17    18  ]
+                        1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
+    ...%        hour = [19    20    21   22   23   24 ]
+                        1500, 1000, 700, 450, 300, 220]; % [veh/hour]
+    
+    %           hour = [1    2    3    4    5     6 ]
+    MDOT_outflow_hour = [200, 180, 160, 150, 200, 500,... % [veh/hour]
+    ...%        hour = [7     8     9     10    11    12 ]
+                        1200, 1800, 1500, 1100, 1000, 900,... % [veh/hour]
+    ...%        hour = [13   14    15    16    17    18  ]
+                        950, 1000, 1100, 1600, 1900, 1700,... % [veh/hour]
+    ...%        hour = [19    20   21   22   23   24 ]
+                        1200, 800, 500, 350, 250, 200]; % [veh/hour]
 else
     error("MDOTTRUTHDATA: No Roadway Found")
 end

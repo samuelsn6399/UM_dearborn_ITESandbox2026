@@ -48,7 +48,11 @@ if rho_n(1) <= road.FD.rho_c
 else
     S1 = road.FD.Q(rho_n(1), road.FD.vf(1));
 end
-F_n_desired(1) = demand.V_taz_depart(road.idx,road.boundary_idx(1)) * zone.f_depart(sim.h, road.boundary_idx(1)) / 3600; % OD model inbound flux
+if road.boundary_idx(1) == 0 % for roads that originate at an intersection, no boundary condition is applied
+    F_n_desired(1) = 0;
+else    
+    F_n_desired(1) = demand.V_taz_depart(road.idx,road.boundary_idx(1)) * zone.f_depart(sim.h, road.boundary_idx(1)) / 3600; % OD model inbound flux
+end
 F_n(1) = min(F_n_desired(1), S1*road.N_lanes(1)); % (veh/s) inbound flux across upstream boundary
 
 % Downstream Boundary Fluxes (Outflow)
@@ -58,8 +62,11 @@ if rho_n(road.Nx) <= road.FD.rho_c
 else
     D_Nx = road.FD.Q(road.FD.rho_c, road.FD.vf(road.Nx));
 end
-F_n_desired(2) = demand.V_taz_arrive(road.idx,road.boundary_idx(2)) * zone.f_arrive(sim.h, road.boundary_idx(2)) / 3600; % OD model outbound flux
-% F_n(road.Nx+1) = min(F_n_desired(2), D_Nx*road.N_lanes(road.Nx)); % (veh/s) outbound flux across downstream boundary
+if road.boundary_idx(2) == 0 % for roads that terminate at an intersection, no boundary condition is applied
+    F_n_desired(2) = 0;
+else
+    F_n_desired(2) = demand.V_taz_arrive(road.idx,road.boundary_idx(2)) * zone.f_arrive(sim.h, road.boundary_idx(2)) / 3600; % OD model outbound flux
+end
 F_n(road.Nx+1) = D_Nx*road.N_lanes(road.Nx); % (veh/s) outbound flux across downstream boundary
 
 % Source/sink and density update
@@ -92,6 +99,7 @@ for i = 1:road.Nx
     s_n(i)      = sum(s_i); % [veh/s]
     F_n_net = F_n(i) - F_n(i+1);
     rho_next(i) = rho_n(i) + (sim.dt/sim.dx)*(F_n_net + s_n(i)); % [veh/ft]
+
     if rho_next(i) < 0
         rho_next(i) = 0; % Set density to zero if it becomes negative
     end

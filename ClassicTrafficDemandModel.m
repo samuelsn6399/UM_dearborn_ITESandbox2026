@@ -169,20 +169,22 @@ evergreenRdSouthBound_OD_access = [0 1 0 0 1 0; % 1 = OD entry applies
                                    0 0 0 0 0 0;
                                    1 1 0 0 1 0];
 evergreenRdNorthBound_OD_access = evergreenRdSouthBound_OD_access';
-% HubbardRdEastBound_OD_acces = [0 0 1 0 0 1;
-%                                0 0 1 0 0 1;
-%                                0 0 0 0 0 1;
-%                                0 0 1 0 0 1;
-%                                0 0 1 0 0 1;
-%                                0 0 0 0 0 0];
-% HubbardRdWestBound_OD_acces = HubbardRdEastBound_OD_acces';
+hubbardRdEastBound_OD_acces = [0 0 1 0 0 1;
+                               0 0 1 0 0 1;
+                               0 0 0 0 0 1;
+                               0 0 1 0 0 1;
+                               0 0 1 0 0 1;
+                               0 0 0 0 0 0];
+hubbardRdWestBound_OD_acces = hubbardRdEastBound_OD_acces';
 OD_access(:,:,1) = evergreenRdSouthBound_OD_access; % idx 1 = evergreen southbound
 OD_access(:,:,2) = evergreenRdNorthBound_OD_access; % idx 2 = evergreen northbound
+OD_access(:,:,3) = hubbardRdEastBound_OD_acces; % idx 3 = hubbard eastbound
+OD_access(:,:,4) = hubbardRdWestBound_OD_acces; % idx 4 = hubbard westbound
 
 % Daily vehicle trips arriving at / departing from each TAZ
 % Arrivals: sum of T_vehicle(other_taz -> this_taz) for each k
 % Departures: sum of T_vehicle(this_taz -> other_taz) for each k
-Nroads = 2; % evergreen rd north and south bound
+Nroads = length(OD_access(1,1,:)); % evergreen rd north and south bound
 demand.V_taz_arrive = zeros(Nroads, Nzones); % [veh/day]
 demand.V_taz_depart = zeros(Nroads, Nzones); % [veh/day]
 for l = 1:Nroads
@@ -194,14 +196,4 @@ for l = 1:Nroads
         demand.V_taz_depart(this_road,this_taz) = sum(demand.T_vehicle(this_taz, other_taz).*OD_access(this_taz, other_taz, this_road));
     end
 end
-% TODO:
-%    - Network loading must account for 4 different roads to load
-%    - The OD matrix needs to be further mapped to individual roads
-%    - i.e. Origin: Shopping Center; Destination: Campus
-%        - Expect to only load the Northbound road, rather than applying the source to both South and Northbound
-
-% TODO:
-%   - For trips that start on one road and end on another, become local sinks on the origin road at the intersection
-%   - Develop turning ratio from number of cars passing through an intersection that turn on to the other road
-
 end

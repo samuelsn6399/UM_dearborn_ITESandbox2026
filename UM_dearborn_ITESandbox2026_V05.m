@@ -43,6 +43,8 @@ FD.Q = @(rho, vf) vf .* rho .* (1 - rho/FD.rho_j);
 %% Configure Road Geometry (User Input)
 evergreenRdSouthbound = EvergreenRdSouthbound(sim, FD);
 evergreenRdNorthbound = EvergreenRdNorthbound(sim, FD);
+hubbardRdEastbound = HubbardRdEastbound(sim, FD);
+hubbardRdWestbound = HubbardRdWestbound(sim,FD);
 fprintf('Done configuring road geometry...\n')
 
 %% Configure TAZs (User Input)
@@ -51,18 +53,17 @@ TAZ.names = {'MainCampus',    'ShoppingCenter', 'StudentHousing', ...
 
 % Coordinate Frame Definition:
 % Global: 2D
-% x = 0 ft is the NORTH end of Evergreen Rd; x = evergreen.length is the SOUTH end of Evergreen Road.
-% y = 0 ft is the WEST end of Hubbard Rd; y = hubbard.length is the EAST end of Hubbard Rd. (Hubbard Rd does not exist in sim yet)
+% x = 0 ft is the NORTH end of Evergreen Rd; x = 6500 ft is the SOUTH end of Evergreen Road.
+% y = 0 ft is the WEST end of Hubbard Rd; y = 4500 ft is the EAST end of Hubbard Rd. (Hubbard Rd does not exist in sim yet)
 % Local: 1D
 % x = 0 ft at the local roadways' inflow boundary and x = road.length at the local roadways' outflow boundary
-
 % Approximate zone centroid position [ft]
 % A TAZ can either belong along a corridor making it a source/sink or can be outside of a corridor making it a boundaryZones beyond the corridor are boundaries: NorthBoundary has x < 0, SouthBoundary has x > road.length.
-%           key: [Campus, Shop, StudHsg, North, South, East]
-TAZ.xLocation  = [  3500, 6000,    1000, -2000,  9000, 1000]; % [ft]
+%           key: [Campus, Shop, StudHsg,  North,  South,  East]
+TAZ.xLocation  = [  3500, 6000,    2000, -10000,  16500,  2000]; % [ft]
 % Off-corridor lateral offset for zones not on the main road axis [ft]
-%           key: [Campus, Shop, StudHsg, North, South, East]
-TAZ.yLocation = [      0,    0,    5000,     0,     0, 5280];  % [ft]
+%           key: [Campus, Shop, StudHsg, North,   South,  East]
+TAZ.yLocation = [      0,    0,    1900,      0,      0, 14500];  % [ft]
 % Note: the west end of the east-west corridor terminates at the north-south corridor
 % Each TAZ has an arrival peak (inbound) and departure peak (outbound)
 % Arrivals effectively become sinks from the roadway's perspective
@@ -131,6 +132,19 @@ TAZ.AccessPoints(4).split    = 1;
 TAZ.AccessPoints(4).name     = "Shopping Center";
 fprintf('Done configuring TAZs...\n')
 
+TAZ.AccessPoints(5).taz_idx  = 3;
+TAZ.AccessPoints(5).roadName = hubbardRdEastbound.name;
+TAZ.AccessPoints(5).xLocal   = [1200 3000];
+TAZ.AccessPoints(5).split    = [0.75 0.25];
+TAZ.AccessPoints(5).name     = "Student Housing";
+
+TAZ.AccessPoints(6).taz_idx  = 3;
+TAZ.AccessPoints(6).roadName = hubbardRdWestbound.name;
+TAZ.AccessPoints(6).xLocal   = [1500 3300];
+TAZ.AccessPoints(6).split    = [0.25 0.75];
+TAZ.AccessPoints(6).name     = "Student Housing";
+fprintf('Done configuring TAZs...\n')
+
 % ---- Intersection Point Definitions ----
 % These define locations where vehicles enter/exit the arterial at an 
 % intersection. An intersection connection is split between 2 possible
@@ -144,11 +158,23 @@ intersection(2).roadName = evergreenRdNorthbound.name;
 intersection(2).xLocal = 4400;
 intersection(2).taz_idx_external = [3,6]; % TAZ's not located on the coridor that must pass through the intersection
 
+intersection(3).roadName = hubbardRdEastbound.name;
+intersection(3).xLocal = 0;
+intersection(3).taz_idx_external = [1,4,5]; % TAZ's not located on the coridor that must pass through the intersection
+
+intersection(4).roadName = hubbardRdWestbound.name;
+intersection(4).xLocal = 4400;
+intersection(4).taz_idx_external = [1,4,5]; % TAZ's not located on the coridor that must pass through the intersection
+
 %% Map TAZ Access Points and Intersections to Road Segments
 evergreenRdSouthbound = mapAccessPoints(evergreenRdSouthbound, TAZ);
 evergreenRdSouthbound = mapIntersectionPoints(evergreenRdSouthbound, intersection);
 evergreenRdNorthbound = mapAccessPoints(evergreenRdNorthbound, TAZ);
 evergreenRdNorthbound = mapIntersectionPoints(evergreenRdNorthbound, intersection);
+hubbardRdEastbound = mapIntersectionPoints(hubbardRdEastbound, intersection);
+hubbardRdEastbound = mapAccessPoints(hubbardRdEastbound, TAZ);
+hubbardRdWestbound = mapIntersectionPoints(hubbardRdWestbound, intersection);
+hubbardRdWestbound = mapAccessPoints(hubbardRdWestbound, TAZ);
 
 %% Load (4-Step) Classic Traffic Demand Model
 classicTrafficDemandModel = ClassicTrafficDemandModel(TAZ);
@@ -157,6 +183,8 @@ fprintf('Done loading 4-step model...\n')
 %% Load Truth Data To Support Model Tuning
 evergreenRdSouthbound.Truth = MdotTruthData(evergreenRdSouthbound.name);
 evergreenRdNorthbound.Truth = MdotTruthData(evergreenRdNorthbound.name);
+hubbardRdEastbound.Truth = MdotTruthData(hubbardRdEastbound.name);
+hubbardRdWestbound.Truth = MdotTruthData(hubbardRdWestbound.name);
 fprintf('Done loading MDOT data...\n')
 
 % ====================================================================
@@ -169,13 +197,25 @@ rho_SB = evergreenRdSouthbound.rho;   F_SB    = evergreenRdSouthbound.F;
 F_SB_desired = evergreenRdSouthbound.F_desired;
 g_SB   = evergreenRdSouthbound.g;     g_eff_SB = evergreenRdSouthbound.g_eff;
 s_SB   = evergreenRdSouthbound.s;
-evergreenRdSouthbound = rmfield(evergreenRdSouthbound, {'rho','F','g','g_eff','s'});
+evergreenRdSouthbound = rmfield(evergreenRdSouthbound, {'rho','F', 'F_desired','g','g_eff','s'});
 
 rho_NB = evergreenRdNorthbound.rho;   F_NB    = evergreenRdNorthbound.F;
 F_NB_desired = evergreenRdNorthbound.F_desired;
 g_NB   = evergreenRdNorthbound.g;     g_eff_NB = evergreenRdNorthbound.g_eff;
 s_NB   = evergreenRdNorthbound.s;
-evergreenRdNorthbound = rmfield(evergreenRdNorthbound, {'rho','F','g','g_eff','s'});
+evergreenRdNorthbound = rmfield(evergreenRdNorthbound, {'rho','F', 'F_desired','g','g_eff','s'});
+
+rho_EB = hubbardRdEastbound.rho;   F_EB    = hubbardRdEastbound.F;
+F_EB_desired = hubbardRdEastbound.F_desired;
+g_EB   = hubbardRdEastbound.g;     g_eff_EB = hubbardRdEastbound.g_eff;
+s_EB   = hubbardRdEastbound.s;
+hubbardRdEastbound = rmfield(hubbardRdEastbound, {'rho','F', 'F_desired','g','g_eff','s'});
+
+rho_WB = hubbardRdWestbound.rho;   F_WB    = hubbardRdWestbound.F;
+F_WB_desired = hubbardRdWestbound.F_desired;
+g_WB   = hubbardRdWestbound.g;     g_eff_WB = hubbardRdWestbound.g_eff;
+s_WB   = hubbardRdWestbound.s;
+hubbardRdWestbound = rmfield(hubbardRdWestbound, {'rho','F', 'F_desired','g','g_eff','s'});
 
 fprintf('==================\n')
 fprintf('\n BEGIN SIMULATION \n')
@@ -196,6 +236,16 @@ for n = 1:sim.Nt-1
     % ----------------------------------------------------------------
     [rho_NB(:,n+1), F_NB(:,n), F_NB_desired(:,n), g_NB(n), g_eff_NB(:,n), s_NB(:,n)] = ...
         LWRModel(evergreenRdNorthbound, rho_NB(:,n), classicTrafficDemandModel, TAZ, sim);
+
+    %% Road 3 (Eastbound) — x=0 at West, x=6500 at East
+    % ----------------------------------------------------------------
+    [rho_EB(:,n+1), F_EB(:,n), F_EB_desired(:,n), g_EB(n), g_eff_EB(:,n), s_EB(:,n)] = ...
+        LWRModel(hubbardRdEastbound, rho_EB(:,n), classicTrafficDemandModel, TAZ, sim);
+
+    %% Road 4 (Westbound) — x=0 at East, x=6500 at West
+    % ----------------------------------------------------------------
+    [rho_WB(:,n+1), F_WB(:,n), F_WB_desired(:,n), g_WB(n), g_eff_WB(:,n), s_WB(:,n)] = ...
+        LWRModel(hubbardRdWestbound, rho_NB(:,n), classicTrafficDemandModel, TAZ, sim);
 end
 fprintf('Simulation complete. Wall time: %.1f s\n', toc(sim_tic))
 
@@ -209,6 +259,16 @@ evergreenRdNorthbound.rho = rho_NB; evergreenRdNorthbound.F = F_NB;
 evergreenRdNorthbound.F_desired = F_NB_desired;
 evergreenRdNorthbound.g   = g_NB;   evergreenRdNorthbound.g_eff = g_eff_NB;
 evergreenRdNorthbound.s   = s_NB;
+
+hubbardRdEastbound.rho = rho_EB; hubbardRdEastbound.F = F_EB;
+hubbardRdEastbound.F_desired = F_EB_desired;
+hubbardRdEastbound.g   = g_EB;   hubbardRdEastbound.g_eff = g_eff_EB;
+hubbardRdEastbound.s   = s_EB;
+
+hubbardRdWestbound.rho = rho_WB; hubbardRdWestbound.F = F_WB;
+hubbardRdWestbound.F_desired = F_WB_desired;
+hubbardRdWestbound.g   = g_WB;   hubbardRdWestbound.g_eff = g_eff_WB;
+hubbardRdWestbound.s   = s_WB;
 
 % ====================================================================
 %% ======================== Plot Results =============================
