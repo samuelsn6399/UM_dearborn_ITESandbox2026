@@ -91,8 +91,16 @@ for i = 1:road.Nx
     if ~isempty(intersection_match)
         NtazExternal = length(road.intersection(1).taz_idx_external);
         for k = 1:NtazExternal
-            q_arr_intersection = demand.V_taz_arrive(road.idx, road.intersection(1).taz_idx_external(k)) * zone.f_arrive(sim.h, road.intersection(1).taz_idx_external(k)) / 3600; % [veh/s]
-            q_dep_intersection = demand.V_taz_depart(road.idx, road.intersection(1).taz_idx_external(k)) * zone.f_depart(sim.h, road.intersection(1).taz_idx_external(k)) / 3600; % [veh/s]
+            if road.idx ~= 3 % Cars never access Hubbard East Bound via the inersection
+                q_arr_intersection = demand.V_taz_arrive(road.idx, road.intersection(1).taz_idx_external(k)) * zone.f_arrive(sim.h, road.intersection(1).taz_idx_external(k)) / 3600; % [veh/s]
+            else
+                q_arr_intersection = 0;
+            end
+            if road.idx ~= 4 % Cars never leave Hubbard West Bound via the inersection
+                q_dep_intersection = demand.V_taz_depart(road.idx, road.intersection(1).taz_idx_external(k)) * zone.f_depart(sim.h, road.intersection(1).taz_idx_external(k)) / 3600; % [veh/s]
+            else
+                q_dep_intersection = 0;
+            end
             s_i(end + k) = (q_dep_intersection - q_arr_intersection); % [veh/s]
         end
     end

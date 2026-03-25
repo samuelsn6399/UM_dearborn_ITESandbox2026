@@ -26,8 +26,8 @@ function demand = ClassicTrafficDemandModel(zone)
 % Linear model: A_zone = rate_emp*Employment + rate_enroll*Enrollment
 %               + rate_retail*RetailArea (NCHRP 716 Table 3-8 guidance)
 demand.attr_rates = [1.5,    ...  % [person-trips/job/day]
-                     0.1,    ...  % [person-trips/student/day]
-                     0.002]; ...  % [person-trips/sqft/day]
+                     0.4,    ...  % [person-trips/student/day]
+                     0.01]; ...  % [person-trips/sqft/day]
 
 % ---- Step 2 Parameters: Gravity Model ----
 % Friction factor: F(t_ij) = exp(-beta * t_ij)
@@ -187,13 +187,14 @@ OD_access(:,:,4) = hubbardRdWestBound_OD_acces; % idx 4 = hubbard westbound
 Nroads = length(OD_access(1,1,:)); % evergreen rd north and south bound
 demand.V_taz_arrive = zeros(Nroads, Nzones); % [veh/day]
 demand.V_taz_depart = zeros(Nroads, Nzones); % [veh/day]
+QUICKTUNE_MagScale = 1;
 for l = 1:Nroads
     this_road = l;
     for k = 1:Nzones
         this_taz = k;
         other_taz = ~ismember(1:Nzones, k);
-        demand.V_taz_arrive(this_road,this_taz) = sum(demand.T_vehicle(other_taz, this_taz).*OD_access(other_taz, this_taz, this_road));
-        demand.V_taz_depart(this_road,this_taz) = sum(demand.T_vehicle(this_taz, other_taz).*OD_access(this_taz, other_taz, this_road));
+        demand.V_taz_arrive(this_road,this_taz) = QUICKTUNE_MagScale.*sum(demand.T_vehicle(other_taz, this_taz).*OD_access(other_taz, this_taz, this_road));
+        demand.V_taz_depart(this_road,this_taz) = QUICKTUNE_MagScale.*sum(demand.T_vehicle(this_taz, other_taz).*OD_access(this_taz, other_taz, this_road));
     end
 end
 end

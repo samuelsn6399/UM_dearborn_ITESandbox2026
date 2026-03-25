@@ -68,10 +68,10 @@ TAZ.yLocation = [      0,    0,    1900,      0,      0, 14500];  % [ft]
 % Each TAZ has an arrival peak (inbound) and departure peak (outbound)
 % Arrivals effectively become sinks from the roadway's perspective
 % Departures become sources from the roadway's perspective
-TAZ.peak_arrive = [8, 13, 12, 12, 12, 12];      % [hour of day] arrival peak per TAZ
-TAZ.sigma_arrive = [1.5, 2.0, 5, 5, 5, 5];  % [hours] arrival peak spread per TAZ
-TAZ.peak_depart = [17, 14, 12, 12, 12, 12];    % [hour of day] departure peak per TAZ
-TAZ.sigma_depart = [1.5, 2.0, 5, 5, 5, 5]; % [hours] departure peak spread per TAZ
+TAZ.peak_arrive = [14, 14, 14, 16, 16, 14];      % [hour of day] arrival peak per TAZ
+TAZ.sigma_arrive = [4, 4, 4, 4, 4, 5];  % [hours] arrival peak spread per TAZ
+TAZ.peak_depart = [14, 14, 14, 16, 16, 14];    % [hour of day] departure peak per TAZ
+TAZ.sigma_depart = [4, 4, 4, 4, 4, 5]; % [hours] departure peak spread per TAZ
 % Convert daily vehicle volumes to hourly rates using parametric Gaussian peaks
 % f_norm(h) = fraction of daily traffic in hour h  [24-element vector]
 % Arrival and departure profiles are computed per TAZ
@@ -245,7 +245,7 @@ for n = 1:sim.Nt-1
     %% Road 4 (Westbound) — x=0 at East, x=6500 at West
     % ----------------------------------------------------------------
     [rho_WB(:,n+1), F_WB(:,n), F_WB_desired(:,n), g_WB(n), g_eff_WB(:,n), s_WB(:,n)] = ...
-        LWRModel(hubbardRdWestbound, rho_NB(:,n), classicTrafficDemandModel, TAZ, sim);
+        LWRModel(hubbardRdWestbound, rho_WB(:,n), classicTrafficDemandModel, TAZ, sim);
 end
 fprintf('Simulation complete. Wall time: %.1f s\n', toc(sim_tic))
 
@@ -264,17 +264,60 @@ hubbardRdEastbound.rho = rho_EB; hubbardRdEastbound.F = F_EB;
 hubbardRdEastbound.F_desired = F_EB_desired;
 hubbardRdEastbound.g   = g_EB;   hubbardRdEastbound.g_eff = g_eff_EB;
 hubbardRdEastbound.s   = s_EB;
+% Note: Hubbard East Bound eminates from the intersection and has no
+% boundary condition; therfore, the flow measured immediately after the
+% intersection (seg. idx = 2) is taken as the boundary condition (seg. idx = 1) 
+% for tuning visualization.
+hubbardRdEastbound.F(1,:) = F_EB(2,:);
 
 hubbardRdWestbound.rho = rho_WB; hubbardRdWestbound.F = F_WB;
 hubbardRdWestbound.F_desired = F_WB_desired;
 hubbardRdWestbound.g   = g_WB;   hubbardRdWestbound.g_eff = g_eff_WB;
 hubbardRdWestbound.s   = s_WB;
 
+% Note F_desired exceptions for Hubbard Rd; must manually
+% assign due to intersection dynamics
+evergreenRdSouthboundTemporal = evergreenRdSouthbound.F(1,:)./sum(evergreenRdSouthbound.F(1,:));
+evergreenRdNorthboundTemporal = evergreenRdNorthbound.F(1,:)./sum(evergreenRdNorthbound.F(1,:));
+average_temporal_factor = (evergreenRdSouthboundTemporal+evergreenRdNorthboundTemporal)./sum(evergreenRdSouthboundTemporal+evergreenRdNorthboundTemporal);
+hubbardRdEastbound.F_desired(1,:) = average_temporal_factor...
+        .*sum(classicTrafficDemandModel.V_taz_depart(3,intersection(3).taz_idx_external),'all');
+hubbardRdWestbound.F_desired(2,:) = average_temporal_factor...
+        .*sum(classicTrafficDemandModel.V_taz_arrive(4,intersection(4).taz_idx_external),'all');
+
+% ====================================================================
+%% ====================== PLOT CONTROLS (USER INPUT) ================
+% ====================================================================
+% Toggle each plot group on (true) or off (false).
+plots.tuning_boundary     = true;   % Hourly boundary flow vs MDOT truth (one fig per road)
+plots.tuning_conservation = true;   % Daily trip conservation summary across all roads
+plots.space_time          = false;   % Space-time density diagrams
+plots.signal_timing       = false;  % Signal phase space-time diagrams
+plots.source_sink         = false;  % Net source/sink time series at access points
+plots.od_matrix           = false;  % OD matrix heatmap
+plots.road_geometry       = false;  % Road geometry with lane widths and access points
+
+% Road filter — applies to space_time, signal_timing, source_sink, road_geometry only.
+% tuning_boundary and tuning_conservation always cover all roads.
+plots.road_SB = true;
+plots.road_NB = true;
+plots.road_EB = true;
+plots.road_WB = true;
+
 % ====================================================================
 %% ======================== Plot Results =============================
 % ====================================================================
+% Road lookup for loop-based plotting
+all_roads    = {evergreenRdSouthbound, evergreenRdNorthbound, ...
+                hubbardRdEastbound,    hubbardRdWestbound};
+road_keys    = {'SB', 'NB', 'EB', 'WB'};
+road_enabled = [plots.road_SB, plots.road_NB, plots.road_EB, plots.road_WB];
+Nroads       = numel(all_roads);
+pts_per_hr   = round(3600 / sim.dt);           % time steps per hour
+Nhrs         = floor((sim.Nt-1) / pts_per_hr); % complete simulated hours
+hrs          = 1:Nhrs;
 
-%% Demand Model Summary
+%% Demand Model Console Summary
 fprintf('\n========== 4-Step Demand Model Summary ==========\n');
 fprintf('%-20s %10s %10s %10s\n', 'Zone', 'P [p-t/d]', 'A [p-t/d]', 'P-A');
 for iz = 1:Nzones
@@ -283,164 +326,302 @@ for iz = 1:Nzones
         classicTrafficDemandModel.P(iz) - classicTrafficDemandModel.A(iz));
 end
 fprintf('%-20s %10.0f %10.0f\n', 'TOTAL', sum(classicTrafficDemandModel.P), sum(classicTrafficDemandModel.A));
-fprintf('\nOD Matrix [vehicle-trips/day]:\n');
-header = sprintf('%15s', '');
-for j = 1:Nzones
-    header = [header sprintf('%15s', TAZ.names{j}(1:min(end,12)))]; %#ok<AGROW>
-end
-fprintf('%s\n', header);
-for i = 1:Nzones
-    row = sprintf('%15s', TAZ.names{i}(1:min(end,12)));
-    for j = 1:Nzones
-        row = [row sprintf('%15.0f', classicTrafficDemandModel.T_vehicle(i,j))]; %#ok<AGROW>
+
+% ====================================================================
+%% Tuning: Hourly Boundary Flow vs MDOT Truth
+% One figure per road; 2x3 subplot layout:
+%   Row 1: inflow time series | outflow time series | daily totals bar
+%   Row 2: inflow % error     | outflow % error     | daily % error bar
+% ====================================================================
+if plots.tuning_boundary
+    Npts = Nhrs * pts_per_hr;
+    for r = 1:Nroads
+        road     = all_roads{r};
+        has_mdot = any(road.Truth.MDOT_inflow > 0) || any(road.Truth.MDOT_outflow > 0);
+
+        % Aggregate per-second flux to hourly vehicle counts [veh/hr]
+        F_in_hrly      = sum(reshape(road.F(1,          1:Npts), pts_per_hr, Nhrs)) * sim.dt;
+        F_in_des_hrly  = sum(reshape(road.F_desired(1,  1:Npts), pts_per_hr, Nhrs)) * sim.dt;
+        F_out_hrly     = sum(reshape(road.F(road.Nx+1,  1:Npts), pts_per_hr, Nhrs)) * sim.dt;
+        F_out_des_hrly = sum(reshape(road.F_desired(2,  1:Npts), pts_per_hr, Nhrs)) * sim.dt;
+        if has_mdot
+            mdot_in_hrly  = road.Truth.MDOT_inflow(1:Nhrs)  * 3600; % [veh/hr]
+            mdot_out_hrly = road.Truth.MDOT_outflow(1:Nhrs) * 3600;
+        end
+
+        figure('Name',['boundaryTuning_' road_keys{r}], ...
+               'Position',[50 50 1400 650],'Color','w')
+        sgtitle(['Boundary Flow Tuning: ' road.name],'FontSize',13,'FontWeight','bold')
+
+        % (1,1) Upstream inflow — hourly
+        subplot(2,3,1); hold on
+        if has_mdot
+            bar(hrs, mdot_in_hrly,'FaceColor',[0.2 0.4 0.8],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
+        end
+        plot(hrs, F_in_des_hrly,'k--o','LineWidth',1.5,'MarkerSize',4,'DisplayName','OD Desired')
+        plot(hrs, F_in_hrly,    'r-o', 'LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+        hold off
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
+        grid on; legend('Location','northwest','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+
+        % (1,2) Downstream outflow — hourly
+        subplot(2,3,2); hold on
+        if has_mdot
+            bar(hrs, mdot_out_hrly,'FaceColor',[0.2 0.7 0.3],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
+        end
+        plot(hrs, F_out_des_hrly,'k--o','LineWidth',1.5,'MarkerSize',4,'DisplayName','OD Desired')
+        plot(hrs, F_out_hrly,    'r-o', 'LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+        hold off
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
+        grid on; legend('Location','northwest','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+
+        % (1,3) Daily volume summary bar
+        subplot(2,3,3)
+        if has_mdot
+            daily_mat = [sum(mdot_in_hrly),   sum(mdot_out_hrly);
+                         sum(F_in_des_hrly),  sum(F_out_des_hrly);
+                         sum(F_in_hrly),       sum(F_out_hrly)];
+            b = bar(categorical({'Inflow','Outflow'}), daily_mat');
+            b(1).DisplayName = 'MDOT Truth'; b(1).FaceColor = [0.2 0.4 0.8];
+            b(2).DisplayName = 'OD Desired'; b(2).FaceColor = [0.7 0.7 0.7];
+            b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
+        else
+            daily_mat = [sum(F_in_des_hrly), sum(F_out_des_hrly);
+                         sum(F_in_hrly),      sum(F_out_hrly)];
+            b = bar(categorical({'Inflow','Outflow'}), daily_mat');
+            b(1).DisplayName = 'OD Desired'; b(1).FaceColor = [0.7 0.7 0.7];
+            b(2).DisplayName = 'Sim Actual'; b(2).FaceColor = [0.9 0.3 0.3];
+        end
+        ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
+        legend('Location','northeast','FontSize',8); grid on
+
+        % (2,1) Inflow % error vs MDOT — hourly
+        subplot(2,3,4)
+        if has_mdot
+            denom = max(mdot_in_hrly, 1);
+            hold on
+            bar(hrs, (F_in_des_hrly - mdot_in_hrly) ./ denom * 100, ...
+                'FaceColor',[0.7 0.7 0.7],'FaceAlpha',0.7,'DisplayName','OD Desired')
+            plot(hrs, (F_in_hrly - mdot_in_hrly) ./ denom * 100, ...
+                'r-o','LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+            yline(0,'k--','LineWidth',1)
+            hold off
+            ylabel('Error [%]'); xlabel('Hour of Day'); title('Inflow % Error vs MDOT')
+            grid on; legend('Location','northeast','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+        else
+            text(0.5,0.5,'No MDOT data','HorizontalAlignment','center', ...
+                'Units','normalized','FontSize',11); axis off
+        end
+
+        % (2,2) Outflow % error vs MDOT — hourly
+        subplot(2,3,5)
+        if has_mdot
+            denom = max(mdot_out_hrly, 1);
+            hold on
+            bar(hrs, (F_out_des_hrly - mdot_out_hrly) ./ denom * 100, ...
+                'FaceColor',[0.7 0.7 0.7],'FaceAlpha',0.7,'DisplayName','OD Desired')
+            plot(hrs, (F_out_hrly - mdot_out_hrly) ./ denom * 100, ...
+                'r-o','LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+            yline(0,'k--','LineWidth',1)
+            hold off
+            ylabel('Error [%]'); xlabel('Hour of Day'); title('Outflow % Error vs MDOT')
+            grid on; legend('Location','northeast','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+        else
+            text(0.5,0.5,'No MDOT data','HorizontalAlignment','center', ...
+                'Units','normalized','FontSize',11); axis off
+        end
+
+        % (2,3) Daily % error summary
+        subplot(2,3,6)
+        if has_mdot
+            vals = [(sum(F_in_des_hrly)  - sum(mdot_in_hrly))  / sum(mdot_in_hrly)  * 100, ...
+                    (sum(F_in_hrly)      - sum(mdot_in_hrly))  / sum(mdot_in_hrly)  * 100, ...
+                    (sum(F_out_des_hrly) - sum(mdot_out_hrly)) / sum(mdot_out_hrly) * 100, ...
+                    (sum(F_out_hrly)     - sum(mdot_out_hrly)) / sum(mdot_out_hrly) * 100];
+            lbls = categorical({'In: Desired','In: Actual','Out: Desired','Out: Actual'}, ...
+                               {'In: Desired','In: Actual','Out: Desired','Out: Actual'});
+            b2 = bar(lbls, vals);
+            b2.FaceColor = 'flat';
+            b2.CData = [[0.7 0.7 0.7]; [0.9 0.3 0.3]; [0.7 0.7 0.7]; [0.9 0.3 0.3]];
+            yline(0,'k--','LineWidth',1)
+            ylabel('Daily Volume % Error vs MDOT'); title('Daily % Error Summary')
+            grid on; xtickangle(15)
+        else
+            text(0.5,0.5,'No MDOT data','HorizontalAlignment','center', ...
+                'Units','normalized','FontSize',11); axis off
+        end
     end
-    fprintf('%s\n', row);
 end
 
+% ====================================================================
+%% Tuning: Daily Trip Conservation — All Roads
+% Compares OD model desired daily volumes vs MDOT truth vs sim actual
+% for each road's upstream and downstream boundaries.
+% ====================================================================
+if plots.tuning_conservation
+    Npts = Nhrs * pts_per_hr;
+
+    % Pre-compute daily totals for all roads
+    daily_mdot_in  = zeros(1, Nroads);
+    daily_des_in   = zeros(1, Nroads);
+    daily_act_in   = zeros(1, Nroads);
+    daily_mdot_out = zeros(1, Nroads);
+    daily_des_out  = zeros(1, Nroads);
+    daily_act_out  = zeros(1, Nroads);
+    for r = 1:Nroads
+        road = all_roads{r};
+        daily_mdot_in(r)  = sum(road.Truth.MDOT_inflow(1:Nhrs))  * 3600;
+        daily_des_in(r)   = sum(road.F_desired(1, 1:Npts)) * sim.dt;
+        daily_act_in(r)   = sum(road.F(1,         1:Npts)) * sim.dt;
+        daily_mdot_out(r) = sum(road.Truth.MDOT_outflow(1:Nhrs)) * 3600;
+        daily_des_out(r)  = sum(road.F_desired(2, 1:Npts)) * sim.dt;
+        daily_act_out(r)  = sum(road.F(road.Nx+1, 1:Npts)) * sim.dt;
+    end
+
+    % Console table
+    fprintf('\n========== Daily Trip Conservation Summary ==========\n')
+    fprintf('%-6s %12s %12s %12s %10s %10s\n', ...
+        'Road','MDOT [veh]','OD Des [veh]','Sim Act [veh]','Err Des%','Err Act%')
+    fprintf('--- Upstream Inflow ---\n')
+    for r = 1:Nroads
+        if daily_mdot_in(r) > 0
+            fprintf('%-6s %12.0f %12.0f %12.0f %9.1f%% %9.1f%%\n', road_keys{r}, ...
+                daily_mdot_in(r), daily_des_in(r), daily_act_in(r), ...
+                (daily_des_in(r)-daily_mdot_in(r))/daily_mdot_in(r)*100, ...
+                (daily_act_in(r)-daily_mdot_in(r))/daily_mdot_in(r)*100)
+        else
+            fprintf('%-6s %12s %12.0f %12.0f %10s %10s\n', ...
+                road_keys{r},'N/A',daily_des_in(r),daily_act_in(r),'N/A','N/A')
+        end
+    end
+    fprintf('--- Downstream Outflow ---\n')
+    for r = 1:Nroads
+        if daily_mdot_out(r) > 0
+            fprintf('%-6s %12.0f %12.0f %12.0f %9.1f%% %9.1f%%\n', road_keys{r}, ...
+                daily_mdot_out(r), daily_des_out(r), daily_act_out(r), ...
+                (daily_des_out(r)-daily_mdot_out(r))/daily_mdot_out(r)*100, ...
+                (daily_act_out(r)-daily_mdot_out(r))/daily_mdot_out(r)*100)
+        else
+            fprintf('%-6s %12s %12.0f %12.0f %10s %10s\n', ...
+                road_keys{r},'N/A',daily_des_out(r),daily_act_out(r),'N/A','N/A')
+        end
+    end
+
+    % Conservation figure — grouped bar charts for all roads
+    figure('Name','tripConservation','Position',[100 100 1100 480],'Color','w')
+    sgtitle('Daily Trip Conservation: OD Model vs MDOT Truth vs Simulation', ...
+        'FontSize',13,'FontWeight','bold')
+
+    subplot(1,2,1)
+    b = bar(categorical(road_keys), [daily_mdot_in; daily_des_in; daily_act_in]');
+    b(1).DisplayName = 'MDOT Truth'; b(1).FaceColor = [0.2 0.4 0.8];
+    b(2).DisplayName = 'OD Desired'; b(2).FaceColor = [0.7 0.7 0.7];
+    b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
+    ylabel('Vehicles [veh/day]'); title('Upstream Inflow: Daily Total')
+    legend('Location','northeast','FontSize',9); grid on
+
+    subplot(1,2,2)
+    b = bar(categorical(road_keys), [daily_mdot_out; daily_des_out; daily_act_out]');
+    b(1).DisplayName = 'MDOT Truth'; b(1).FaceColor = [0.2 0.4 0.8];
+    b(2).DisplayName = 'OD Desired'; b(2).FaceColor = [0.7 0.7 0.7];
+    b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
+    ylabel('Vehicles [veh/day]'); title('Downstream Outflow: Daily Total')
+    legend('Location','northeast','FontSize',9); grid on
+end
+
+% ====================================================================
 %% Space-Time Density Diagrams
-figure('Name','spaceTimeDiagram_Road1')
-imagesc(sim.t/3600, evergreenRdSouthbound.x_centers, evergreenRdSouthbound.rho)
-colorbar
-xlabel('Time [hr]')
-ylabel('Position [ft]')
-title(['Space-Time Density: ' evergreenRdSouthbound.name])
-
-figure('Name','spaceTimeDiagram_Road2')
-imagesc(sim.t/3600, evergreenRdNorthbound.x_centers, evergreenRdNorthbound.rho)
-colorbar
-xlabel('Time [hr]')
-ylabel('Position [ft]')
-title(['Space-Time Density: ' evergreenRdNorthbound.name])
-
-%% OD Tuning – Road 1 (Southbound)
-figure('Name', 'odTuning_Road1')
-subplot(2,2,1)
-hold on
-plot(sim.t, evergreenRdSouthbound.F(1,:), 'r-', 'DisplayName', 'Incoming Flow (Actual OD Model)')
-plot(sim.t, evergreenRdSouthbound.F_desired(1,:), 'r:', 'DisplayName', 'Incoming Flow (Desired OD Model)')
-plot(sim.t, [repelem(evergreenRdSouthbound.Truth.MDOT_inflow_s, 3600), 0], 'b:', 'DisplayName', 'Incoming Flow (MDOT Truth Data)')
-hold off; ylabel('Flow (veh/s)'); title('SB: North Boundary Inflow'); xlabel('time (s)'); grid on; legend();
-subplot(2,2,2)
-plot(sim.t, evergreenRdSouthbound.F(1,:) - [repelem(evergreenRdSouthbound.Truth.MDOT_inflow_s, 3600), 0], 'r-', 'DisplayName', 'OD Model - MDOT Truth Data')
-title('SB: Difference North Inflow'); xlabel('time (s)'); grid on; legend();
-subplot(2,2,3)
-hold on
-plot(sim.t, evergreenRdSouthbound.F(evergreenRdSouthbound.Nx+1,:), 'r-', 'DisplayName', 'Outgoing Flow (Actual OD Model)')
-plot(sim.t, evergreenRdSouthbound.F_desired(2,:), 'r:', 'DisplayName', 'Incoming Flow (Desired OD Model)')
-plot(sim.t, [repelem(evergreenRdSouthbound.Truth.MDOT_outflow_s, 3600), 0], 'b:', 'DisplayName', 'Outgoing Flow (MDOT Truth Data)')
-hold off; ylabel('Flow (veh/s)'); title('SB: South Boundary Outflow'); xlabel('time (s)'); grid on; legend();
-subplot(2,2,4)
-plot(sim.t, evergreenRdSouthbound.F(evergreenRdSouthbound.Nx+1,:) - [repelem(evergreenRdSouthbound.Truth.MDOT_outflow_s, 3600), 0], 'r-', 'DisplayName', 'OD Model - MDOT Truth Data')
-title('SB: Difference South Outflow'); xlabel('time (s)'); grid on; legend();
-
-%% OD Tuning – Road 2 (Northbound)
-figure('Name', 'odTuning_Road2')
-subplot(2,2,1)
-hold on
-plot(sim.t, evergreenRdNorthbound.F(1,:), 'r-', 'DisplayName', 'Incoming Flow (Actual OD Model)')
-plot(sim.t, evergreenRdNorthbound.F_desired(1,:), 'r:', 'DisplayName', 'Incoming Flow (Desired OD Model)')
-plot(sim.t, [repelem(evergreenRdNorthbound.Truth.MDOT_inflow_s, 3600), 0], 'b:', 'DisplayName', 'Incoming Flow (MDOT Truth Data)')
-hold off; ylabel('Flow (veh/s)'); title('NB: South Boundary Inflow'); xlabel('time (s)'); grid on; legend();
-subplot(2,2,2)
-plot(sim.t, evergreenRdNorthbound.F(1,:) - [repelem(evergreenRdNorthbound.Truth.MDOT_inflow_s, 3600), 0], 'r-', 'DisplayName', 'OD Model - MDOT Truth Data')
-title('NB: Difference South Inflow'); xlabel('time (s)'); grid on; legend();
-subplot(2,2,3)
-hold on
-plot(sim.t, evergreenRdNorthbound.F(evergreenRdNorthbound.Nx+1,:), 'r-', 'DisplayName', 'Outgoing Flow (Actual OD Model)')
-plot(sim.t, evergreenRdNorthbound.F_desired(2,:), 'r:', 'DisplayName', 'Outgoing Flow (Desired OD Model)')
-plot(sim.t, [repelem(evergreenRdNorthbound.Truth.MDOT_outflow_s, 3600), 0], 'b:', 'DisplayName', 'Outgoing Flow (MDOT Truth Data)')
-hold off; ylabel('Flow (veh/s)'); title('NB: North Boundary Outflow'); xlabel('time (s)'); grid on; legend();
-subplot(2,2,4)
-plot(sim.t, evergreenRdNorthbound.F(evergreenRdNorthbound.Nx+1,:) - [repelem(evergreenRdNorthbound.Truth.MDOT_outflow_s, 3600), 0], 'r-', 'DisplayName', 'OD Model - MDOT Truth Data')
-title('NB: Difference North Outflow'); xlabel('time (s)'); grid on; legend();
-
-%% Signal Timing – Road 1 (SB)
-g_SB = evergreenRdSouthbound.g;
-g_SB_plot = g_SB;
-g_SB_plot(g_SB == 0) = -1;
-signal_band_SB = zeros(evergreenRdSouthbound.Nx, sim.Nt-1);
-signal_band_SB(evergreenRdSouthbound.signal.cell, :) = g_SB_plot;
-figure('Name','signalSpaceTime_Road1')
-imagesc(sim.t(1:end-1)/60, evergreenRdSouthbound.x_centers, signal_band_SB)
-colormap([0.6 0 0; 1 1 1; 0 0.6 0])
-clim([-1 1])
-colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
-xlabel('Time [min]'); ylabel('Position [ft]')
-title(['Signal Location and Timing: ' evergreenRdSouthbound.name])
-
-%% Signal Timing – Road 2 (NB)
-g_NB = evergreenRdNorthbound.g;
-g_NB_plot = g_NB;
-g_NB_plot(g_NB == 0) = -1;
-signal_band_NB = zeros(evergreenRdNorthbound.Nx, sim.Nt-1);
-signal_band_NB(evergreenRdNorthbound.signal.cell, :) = g_NB_plot;
-figure('Name','signalSpaceTime_Road2')
-imagesc(sim.t(1:end-1)/60, evergreenRdNorthbound.x_centers, signal_band_NB)
-colormap([0.6 0 0; 1 1 1; 0 0.6 0])
-clim([-1 1])
-colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
-xlabel('Time [min]'); ylabel('Position [ft]')
-title(['Signal Location and Timing: ' evergreenRdNorthbound.name])
-
-%% Road Geometry – Road 1 (SB)
-ap_SB.name = []; ap_SB.xSegment = [];
-for k = 1:length(evergreenRdSouthbound.AccessPoints)
-    ap_SB.name     = [ap_SB.name,     evergreenRdSouthbound.AccessPoints(k).name];     %#ok<AGROW>
-    ap_SB.xSegment = [ap_SB.xSegment, evergreenRdSouthbound.AccessPoints(k).xSegment]; %#ok<AGROW>
+% ====================================================================
+if plots.space_time
+    for r = 1:Nroads
+        if road_enabled(r)
+            road = all_roads{r};
+            figure('Name',['spaceTime_' road_keys{r}])
+            imagesc(sim.t/3600, road.x_centers, road.rho)
+            colorbar; xlabel('Time [hr]'); ylabel('Position [ft]')
+            title(['Space-Time Density: ' road.name])
+        end
+    end
 end
-plotRoadGeometry(sim, evergreenRdSouthbound, evergreenRdSouthbound.x_edges, ...
-    evergreenRdSouthbound.x_centers, evergreenRdSouthbound.N_lanes, ...
-    evergreenRdSouthbound.signal, ap_SB);
 
-%% Road Geometry – Road 2 (NB)
-ap_NB.name = []; ap_NB.xSegment = [];
-for k = 1:length(evergreenRdNorthbound.AccessPoints)
-    ap_NB.name     = [ap_NB.name,     evergreenRdNorthbound.AccessPoints(k).name];     %#ok<AGROW>
-    ap_NB.xSegment = [ap_NB.xSegment, evergreenRdNorthbound.AccessPoints(k).xSegment]; %#ok<AGROW>
+% ====================================================================
+%% Signal Timing Diagrams
+% ====================================================================
+if plots.signal_timing
+    for r = 1:Nroads
+        if road_enabled(r)
+            road   = all_roads{r};
+            g_vec  = road.g; g_plot = g_vec; g_plot(g_vec == 0) = -1;
+            band   = zeros(road.Nx, sim.Nt-1);
+            band(road.signal.cell, :) = g_plot;
+            figure('Name',['signalTiming_' road_keys{r}])
+            imagesc(sim.t(1:end-1)/60, road.x_centers, band)
+            colormap([0.6 0 0; 1 1 1; 0 0.6 0]); clim([-1 1])
+            colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
+            xlabel('Time [min]'); ylabel('Position [ft]')
+            title(['Signal Timing: ' road.name])
+        end
+    end
 end
-plotRoadGeometry(sim, evergreenRdNorthbound, evergreenRdNorthbound.x_edges, ...
-    evergreenRdNorthbound.x_centers, evergreenRdNorthbound.N_lanes, ...
-    evergreenRdNorthbound.signal, ap_NB);
 
-%% Net Source/Sink – Road 1 (SB)
-figure('Name','netSourceSinkLog_Road1')
-Nap_SB = length(ap_SB.xSegment);
-for k = 1:Nap_SB
-    subplot(Nap_SB, 1, k)
-    plot(sim.t/3600, evergreenRdSouthbound.s(ap_SB.xSegment(k),:), 'LineWidth', 1)
-    ylabel('[veh/ft/s]')
-    title(ap_SB.name(k), 'FontSize', 8)
-    grid on
+% ====================================================================
+%% Net Source/Sink Time Series
+% ====================================================================
+if plots.source_sink
+    for r = 1:Nroads
+        if road_enabled(r)
+            road = all_roads{r};
+            Nap  = length(road.AccessPoints);
+            if Nap == 0; continue; end
+            ap_seg  = cell2mat(arrayfun(@(k) road.AccessPoints(k).xSegment, ...
+                                        1:Nap, 'UniformOutput', false));
+            ap_name = [road.AccessPoints.name];
+            figure('Name',['sourceSink_' road_keys{r}])
+            for k = 1:length(ap_seg)
+                subplot(length(ap_seg),1,k)
+                plot(sim.t/3600, road.s(ap_seg(k),:),'LineWidth',1)
+                ylabel('[veh/s]'); title(ap_name(k),'FontSize',8); grid on
+            end
+            xlabel('Time [hr]')
+            sgtitle(['Net Source/Sink: ' road.name])
+        end
+    end
 end
-xlabel('Time [hr]')
-sgtitle(['Net Source/Sink Term [veh/ft/s]: ' evergreenRdSouthbound.name])
 
-%% Net Source/Sink – Road 2 (NB)
-figure('Name','netSourceSinkLog_Road2')
-Nap_NB = length(ap_NB.xSegment);
-for k = 1:Nap_NB
-    subplot(Nap_NB, 1, k)
-    plot(sim.t/3600, evergreenRdNorthbound.s(ap_NB.xSegment(k),:), 'LineWidth', 1)
-    ylabel('[veh/ft/s]')
-    title(ap_NB.name(k), 'FontSize', 8)
-    grid on
-end
-xlabel('Time [hr]')
-sgtitle(['Net Source/Sink Term [veh/ft/s]: ' evergreenRdNorthbound.name])
-
+% ====================================================================
 %% OD Matrix Heatmap
-figure('Name','odMatrixVehicleTripsDay')
-imagesc(classicTrafficDemandModel.T_vehicle)
-colorbar
-xticks(1:Nzones); xticklabels(TAZ.names); xtickangle(30)
-yticks(1:Nzones); yticklabels(TAZ.names)
-xlabel('Destination Zone')
-ylabel('Origin Zone')
-title('OD Matrix: Vehicle Trips per Day (Gravity Model)')
-for i = 1:Nzones
-    for j = 1:Nzones
-        text(j, i, sprintf('%.0f', classicTrafficDemandModel.T_vehicle(i,j)), ...
-            'HorizontalAlignment','center','FontSize',7,'Color','w')
+% ====================================================================
+if plots.od_matrix
+    figure('Name','odMatrix')
+    imagesc(classicTrafficDemandModel.T_vehicle); colorbar
+    xticks(1:Nzones); xticklabels(TAZ.names); xtickangle(30)
+    yticks(1:Nzones); yticklabels(TAZ.names)
+    xlabel('Destination Zone'); ylabel('Origin Zone')
+    title('OD Matrix: Vehicle Trips per Day (Gravity Model)')
+    for i = 1:Nzones
+        for j = 1:Nzones
+            text(j,i,sprintf('%.0f',classicTrafficDemandModel.T_vehicle(i,j)), ...
+                'HorizontalAlignment','center','FontSize',7,'Color','w')
+        end
+    end
+end
+
+% ====================================================================
+%% Road Geometry Diagrams
+% ====================================================================
+if plots.road_geometry
+    for r = 1:Nroads
+        if road_enabled(r)
+            road = all_roads{r};
+            Nap  = length(road.AccessPoints);
+            ap.name = []; ap.xSegment = [];
+            for k = 1:Nap
+                ap.name     = [ap.name,     road.AccessPoints(k).name];
+                ap.xSegment = [ap.xSegment, road.AccessPoints(k).xSegment];
+            end
+            plotRoadGeometry(sim, road, road.x_edges, road.x_centers, ...
+                             road.N_lanes, road.signal, ap);
+        end
     end
 end
 

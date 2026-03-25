@@ -23,7 +23,7 @@ function road = HubbardRdWestbound(sim, FD)
 %% Configure Road Geometry (User Input)
 road.name = 'Hubbard Rd Westbound';
 road.idx = 4;
-road.length = 6500;     % [ft]
+road.length = 4500;     % [ft]
 road.Nx = road.length/sim.dx;               % number of road segments
 road.x_edges = 0:sim.dx:road.length;             % cell boundaries
 road.x_centers = road.x_edges(1:end-1) + sim.dx/2;   % cell centers
@@ -51,7 +51,7 @@ road.is_signal     = false(1, road.Nx);
 road.is_signal(road.signal.cell) = true;
 
 %% Speed Limit Configuration (User Input)
-idx_45 = ones(length(road.x_centers)); % all segments are 45 mph segments
+idx_45 = road.x_centers<=4501; % all segments are 45 mph segments
 u_free = zeros(1, road.Nx);                 % [ft/s] initialize speed limit vector
 u_free(idx_45) = 45*sim.mph_to_fts;
 
