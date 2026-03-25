@@ -32,7 +32,32 @@ sim.T_end   = 24*3600;           % [s] total simulation time
 sim.t = 0:sim.dt:sim.T_end;                     % time vector
 sim.Nt = numel(sim.t);                          % time vector length
 sim.mph_to_fts = 5280/3600;                     % unit conversion
+sim.mode = 'full'; % 'demand_only' = skip LWR solver (fast calibration) | 'full' = run simulation
 fprintf('Done setting up simulation...\n')
+
+%% Quick Tune: Manual Boundary Scale Factors (User Input)
+% Multiply each OD model boundary flow by the factor below WITHOUT
+% changing the spreadsheets.  Run once with all 1.0, read the
+% "Rec. Scale" column in the console Boundary Tuning Report, then paste
+% those values here and re-run — the report will confirm residual error.
+%
+%   Road  Dir   Boundary TAZ driven by this factor
+%   SB    In    NorthBoundary departures onto Evergreen SB
+%   SB    Out   SouthBoundary arrivals from  Evergreen SB
+%   NB    In    SouthBoundary departures onto Evergreen NB
+%   NB    Out   NorthBoundary arrivals from  Evergreen NB
+%   EB    In    Intersection departures onto Hubbard EB
+%   EB    Out   EastBoundary  arrivals from  Hubbard EB
+%   WB    In    EastBoundary  departures onto Hubbard WB
+%   WB    Out   Intersection  arrivals from  Hubbard WB
+QUICKTUNE.SB_in  = 1.0;
+QUICKTUNE.SB_out = 1.0;
+QUICKTUNE.NB_in  = 1.2;
+QUICKTUNE.NB_out = 1.2;
+QUICKTUNE.EB_in  = 2.5;
+QUICKTUNE.EB_out = 2.1;
+QUICKTUNE.WB_in  = 1.3;
+QUICKTUNE.WB_out = 1.3;
 
 %% Configure Fundamental Diagram (User Input)
 FD.model = "Greenshields";  % only one model currently supported
@@ -180,6 +205,28 @@ hubbardRdWestbound = mapAccessPoints(hubbardRdWestbound, TAZ);
 classicTrafficDemandModel = ClassicTrafficDemandModel(TAZ);
 fprintf('Done loading 4-step model...\n')
 
+%% Apply Quick Tune Scale Factors to OD Model Boundary Flows
+% Save unscaled copy for the console report, then apply QUICKTUNE multipliers
+% to the specific road-TAZ entries that drive each boundary flow.
+qt_raw = classicTrafficDemandModel; % unscaled reference (used in report only)
+
+classicTrafficDemandModel.V_taz_depart(1, 4) = classicTrafficDemandModel.V_taz_depart(1, 4) * QUICKTUNE.SB_in;
+classicTrafficDemandModel.V_taz_arrive(1, 5) = classicTrafficDemandModel.V_taz_arrive(1, 5) * QUICKTUNE.SB_out;
+
+classicTrafficDemandModel.V_taz_depart(2, 5) = classicTrafficDemandModel.V_taz_depart(2, 5) * QUICKTUNE.NB_in;
+classicTrafficDemandModel.V_taz_arrive(2, 4) = classicTrafficDemandModel.V_taz_arrive(2, 4) * QUICKTUNE.NB_out;
+
+for k_qt = intersection(3).taz_idx_external
+    classicTrafficDemandModel.V_taz_depart(3, k_qt) = classicTrafficDemandModel.V_taz_depart(3, k_qt) * QUICKTUNE.EB_in;
+end
+classicTrafficDemandModel.V_taz_arrive(3, 6) = classicTrafficDemandModel.V_taz_arrive(3, 6) * QUICKTUNE.EB_out;
+
+classicTrafficDemandModel.V_taz_depart(4, 6) = classicTrafficDemandModel.V_taz_depart(4, 6) * QUICKTUNE.WB_in;
+for k_qt = intersection(4).taz_idx_external
+    classicTrafficDemandModel.V_taz_arrive(4, k_qt) = classicTrafficDemandModel.V_taz_arrive(4, k_qt) * QUICKTUNE.WB_out;
+end
+fprintf('Done applying Quick Tune scale factors...\n')
+
 %% Load Truth Data To Support Model Tuning
 evergreenRdSouthbound.Truth = MdotTruthData(evergreenRdSouthbound.name);
 evergreenRdNorthbound.Truth = MdotTruthData(evergreenRdNorthbound.name);
@@ -192,6 +239,7 @@ fprintf('Done loading MDOT data...\n')
 % All roads advance in parallel within a single time loop.
 % Road segment loops are independent and uncoupled.
 % ====================================================================
+if strcmp(sim.mode, 'full')
 % Extract state matrices before loop to avoid copy-on-write overhead
 rho_SB = evergreenRdSouthbound.rho;   F_SB    = evergreenRdSouthbound.F;
 F_SB_desired = evergreenRdSouthbound.F_desired;
@@ -284,18 +332,23 @@ hubbardRdEastbound.F_desired(1,:) = average_temporal_factor...
         .*sum(classicTrafficDemandModel.V_taz_depart(3,intersection(3).taz_idx_external),'all');
 hubbardRdWestbound.F_desired(2,:) = average_temporal_factor...
         .*sum(classicTrafficDemandModel.V_taz_arrive(4,intersection(4).taz_idx_external),'all');
+end % if strcmp(sim.mode, 'full')
 
 % ====================================================================
 %% ====================== PLOT CONTROLS (USER INPUT) ================
 % ====================================================================
 % Toggle each plot group on (true) or off (false).
-plots.tuning_boundary     = true;   % Hourly boundary flow vs MDOT truth (one fig per road)
-plots.tuning_conservation = true;   % Daily trip conservation summary across all roads
-plots.space_time          = false;   % Space-time density diagrams
+% NOTE: demand_boundary works in both modes.
+%       tuning_boundary and tuning_conservation require sim.mode = 'full'.
+%       All other plots require sim.mode = 'full'.
+plots.demand_boundary     = true;   % Hourly OD boundary profile vs MDOT truth (demand_only safe)
+plots.tuning_boundary     = false;  % Hourly sim boundary flow vs MDOT truth (requires 'full')
+plots.tuning_conservation = false;  % Daily trip conservation summary (requires 'full')
+plots.space_time          = true;  % Space-time density diagrams
 plots.signal_timing       = false;  % Signal phase space-time diagrams
 plots.source_sink         = false;  % Net source/sink time series at access points
-plots.od_matrix           = false;  % OD matrix heatmap
-plots.road_geometry       = false;  % Road geometry with lane widths and access points
+plots.od_matrix           = true;  % OD matrix heatmap
+plots.road_geometry       = true;  % Road geometry with lane widths and access points
 
 % Road filter — applies to space_time, signal_timing, source_sink, road_geometry only.
 % tuning_boundary and tuning_conservation always cover all roads.
@@ -304,9 +357,45 @@ plots.road_NB = true;
 plots.road_EB = true;
 plots.road_WB = true;
 
+%% Plot Formatting (User Input)
+% Controls figure appearance and PNG export.  Sizes are in inches so that
+% exported PNGs have predictable physical dimensions at the chosen DPI.
+% -----------------------------------------------------------------------
+% Typography
+plotfmt.font        = 'Arial';    % typeface ('Arial', 'Times New Roman', etc.)
+plotfmt.sgtitle_fs  = 32;         % super-title (sgtitle) font size [pt]
+plotfmt.title_fs    = 26;         % subplot title font size [pt]
+plotfmt.label_fs    = 18;         % axis label (xlabel/ylabel) font size [pt]
+plotfmt.tick_fs     = 14;          % tick label font size [pt]
+plotfmt.legend_fs   = 12;          % legend font size [pt]
+% Lines
+plotfmt.lw          = 1.5;        % data line width [pt]
+plotfmt.ms          = 4;          % marker size [pt]
+% Axes appearance
+plotfmt.ax_box      = 'on';       % 'on' | 'off' — axis border box
+plotfmt.tick_dir    = 'in';       % 'in' | 'out' — tick direction
+plotfmt.ax_lw       = 0.75;       % axes border line width [pt]
+% Figure sizes  [width, height]  in inches
+plotfmt.sz_wide     = [12.0, 4.5]; % 1x3 subplots  (demand boundary)
+plotfmt.sz_tall     = [14.0, 6.5]; % 2x3 subplots  (boundary tuning)
+plotfmt.sz_half     = [10.0, 4.0]; % 1x2 subplots  (trip conservation)
+plotfmt.sz_single   = [ 7.0, 5.0]; % single axes   (space-time, OD matrix)
+plotfmt.sz_stack    = [ 7.0, 8.0]; % stacked panels (source/sink)
+% PNG export
+plotfmt.export      = false;       % true = auto-save each figure as PNG
+plotfmt.dpi         = 300;         % export resolution [dots per inch]
+plotfmt.export_dir  = 'figures';   % output folder (created automatically)
+
 % ====================================================================
 %% ======================== Plot Results =============================
 % ====================================================================
+% Apply report-grade MATLAB defaults for all figures in this session.
+% These set the baseline; applyFigureFormat() refines sizes after creation.
+set(groot, 'defaultAxesFontName',   plotfmt.font);
+set(groot, 'defaultTextFontName',   plotfmt.font);
+set(groot, 'defaultLineLineWidth',  plotfmt.lw);
+set(groot, 'defaultLineMarkerSize', plotfmt.ms);
+
 % Road lookup for loop-based plotting
 all_roads    = {evergreenRdSouthbound, evergreenRdNorthbound, ...
                 hubbardRdEastbound,    hubbardRdWestbound};
@@ -327,13 +416,161 @@ for iz = 1:Nzones
 end
 fprintf('%-20s %10.0f %10.0f\n', 'TOTAL', sum(classicTrafficDemandModel.P), sum(classicTrafficDemandModel.A));
 
+%% Boundary Tuning Console Report (available in both modes)
+% Columns: MDOT truth | Raw OD (unscaled) | QT scale applied | Scaled OD | Error% | Rec. Scale
+% "Rec. Scale" is how much more you'd need to multiply to hit MDOT exactly.
+% When QT scale = Rec. Scale from the previous run, Rec. Scale -> 1.000.
+dm = classicTrafficDemandModel; % scaled (post Quick Tune) reference
+
+fprintf('\n========== Boundary Tuning Report ==========\n')
+fprintf('%-6s %-4s %-16s %10s %10s %9s %10s %8s %10s\n', ...
+    'Road','Dir','Boundary TAZ','MDOT[v/d]','RawOD[v/d]','QT Scale','Scaled[v/d]','Error%','Rec.Scale')
+fprintf('%s\n', repmat('-',1,90))
+
+% [road_idx, direction, boundary_taz_idx (0=intersection), road_key, taz_label, qt_field_name]
+bnd_cfg = { ...
+    1, 'In',  4, 'SB', 'NorthBoundary', 'SB_in';  ...
+    1, 'Out', 5, 'SB', 'SouthBoundary', 'SB_out'; ...
+    2, 'In',  5, 'NB', 'SouthBoundary', 'NB_in';  ...
+    2, 'Out', 4, 'NB', 'NorthBoundary', 'NB_out'; ...
+    3, 'In',  0, 'EB', 'Intersection',  'EB_in';  ...
+    3, 'Out', 6, 'EB', 'EastBoundary',  'EB_out'; ...
+    4, 'In',  6, 'WB', 'EastBoundary',  'WB_in';  ...
+    4, 'Out', 0, 'WB', 'Intersection',  'WB_out'  ...
+};
+for b = 1:size(bnd_cfg, 1)
+    r        = bnd_cfg{b,1};
+    dir      = bnd_cfg{b,2};
+    taz      = bnd_cfg{b,3};
+    rkey     = bnd_cfg{b,4};
+    taz_lbl  = bnd_cfg{b,5};
+    qt_field = bnd_cfg{b,6};
+    road_b   = all_roads{r};
+    mdot_daily  = sum(road_b.Truth.MDOT_inflow) * 3600;
+    qt_applied  = QUICKTUNE.(qt_field);
+
+    % Raw OD (before Quick Tune scaling)
+    if strcmp(dir, 'In')
+        if taz == 0
+            raw_od = sum(qt_raw.V_taz_depart(r, intersection(r).taz_idx_external));
+            od_daily = sum(dm.V_taz_depart(r, intersection(r).taz_idx_external));
+        else
+            raw_od   = qt_raw.V_taz_depart(r, taz);
+            od_daily = dm.V_taz_depart(r, taz);
+        end
+    else
+        if taz == 0
+            raw_od   = sum(qt_raw.V_taz_arrive(r, intersection(r).taz_idx_external));
+            od_daily = sum(dm.V_taz_arrive(r, intersection(r).taz_idx_external));
+        else
+            raw_od   = qt_raw.V_taz_arrive(r, taz);
+            od_daily = dm.V_taz_arrive(r, taz);
+        end
+    end
+
+    err_pct   = (od_daily - mdot_daily) / max(mdot_daily, 1) * 100;
+    rec_scale = mdot_daily / max(od_daily, 1);  % multiply QT by this to hit MDOT
+    fprintf('%-6s %-4s %-16s %10.0f %10.0f %9.3f %10.0f %7.1f%% %10.3f\n', ...
+        rkey, dir, taz_lbl, mdot_daily, raw_od, qt_applied, od_daily, err_pct, rec_scale);
+end
+fprintf('\n  Tip: set QUICKTUNE.<field> = (current QT Scale) x (Rec. Scale) to converge.\n\n')
+
+% Weighted-mean / sigma recommendations for TAZ temporal parameters
+fprintf('========== TAZ Temporal Parameter Recommendations ==========\n')
+fprintf('(from MDOT hourly distribution; use to set peak_depart/arrive and sigma)\n')
+h_vec = (1:24)';
+for r = 1:Nroads
+    road_b   = all_roads{r};
+    dist_in  = road_b.Truth.MDOT_inflow(:);   % [veh/s], 24-element
+    dist_out = road_b.Truth.MDOT_outflow(:);
+    if sum(dist_in) > 0
+        mu_in    = sum(h_vec .* dist_in)  / sum(dist_in);
+        sig_in   = sqrt(max(sum((h_vec - mu_in).^2  .* dist_in)  / sum(dist_in), 0));
+        mu_out   = sum(h_vec .* dist_out) / sum(dist_out);
+        sig_out  = sqrt(max(sum((h_vec - mu_out).^2 .* dist_out) / sum(dist_out), 0));
+        fprintf('  %s: peak_arrive=%.1f h, sigma_arrive=%.1f h | peak_depart=%.1f h, sigma_depart=%.1f h\n', ...
+            road_keys{r}, mu_in, sig_in, mu_out, sig_out);
+    end
+end
+fprintf('\n')
+
 % ====================================================================
 %% Tuning: Hourly Boundary Flow vs MDOT Truth
 % One figure per road; 2x3 subplot layout:
 %   Row 1: inflow time series | outflow time series | daily totals bar
 %   Row 2: inflow % error     | outflow % error     | daily % error bar
 % ====================================================================
-if plots.tuning_boundary
+% ====================================================================
+%% Demand-Only: Hourly OD Boundary Profile vs MDOT Truth
+% Works in both 'demand_only' and 'full' modes.
+% Shows the OD model's predicted hourly boundary profile vs MDOT data.
+% ====================================================================
+if plots.demand_boundary
+    h_plot = 1:24;
+    for r = 1:Nroads
+        road_b = all_roads{r};
+
+        % --- compute OD hourly inflow profile ---
+        bnd_in_taz = road_b.boundary_idx(1);
+        if bnd_in_taz == 0  % intersection side: sum over external TAZs
+            od_in_hrly = zeros(24,1);
+            for k = intersection(r).taz_idx_external
+                od_in_hrly = od_in_hrly + dm.V_taz_depart(r,k) .* TAZ.f_depart(:,k);
+            end
+        else
+            od_in_hrly = dm.V_taz_depart(r, bnd_in_taz) .* TAZ.f_depart(:, bnd_in_taz);
+        end
+
+        % --- compute OD hourly outflow profile ---
+        bnd_out_taz = road_b.boundary_idx(2);
+        if bnd_out_taz == 0  % intersection side
+            od_out_hrly = zeros(24,1);
+            for k = intersection(r).taz_idx_external
+                od_out_hrly = od_out_hrly + dm.V_taz_arrive(r,k) .* TAZ.f_arrive(:,k);
+            end
+        else
+            od_out_hrly = dm.V_taz_arrive(r, bnd_out_taz) .* TAZ.f_arrive(:, bnd_out_taz);
+        end
+
+        mdot_in_hrly  = road_b.Truth.MDOT_inflow  * 3600; % [veh/hr]
+        mdot_out_hrly = road_b.Truth.MDOT_outflow * 3600;
+
+        figure('Name',['demandBoundary_' road_keys{r}],'Color','w')
+        sgtitle(['OD Boundary Profile vs MDOT: ' road_b.name], ...
+                'FontSize',plotfmt.sgtitle_fs,'FontWeight','bold')
+
+        % Inflow
+        subplot(1,3,1); hold on
+        bar(h_plot, mdot_in_hrly, 'FaceColor',[0.2 0.4 0.8],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
+        plot(h_plot, od_in_hrly, 'r-o','DisplayName','OD Model')
+        hold off
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
+        grid on; legend('Location','northwest'); xticks(h_plot); xlim([0.5 24.5])
+
+        % Outflow
+        subplot(1,3,2); hold on
+        bar(h_plot, mdot_out_hrly,'FaceColor',[0.2 0.7 0.3],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
+        plot(h_plot, od_out_hrly, 'r-o','DisplayName','OD Model')
+        hold off
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
+        grid on; legend('Location','northwest'); xticks(h_plot); xlim([0.5 24.5])
+
+        % Daily totals bar
+        subplot(1,3,3)
+        daily_mat = [sum(mdot_in_hrly), sum(mdot_out_hrly);
+                     sum(od_in_hrly),   sum(od_out_hrly)];
+        b_hdl = bar(categorical({'Inflow','Outflow'}), daily_mat');
+        b_hdl(1).DisplayName = 'MDOT Truth'; b_hdl(1).FaceColor = [0.2 0.4 0.8];
+        b_hdl(2).DisplayName = 'OD Model';   b_hdl(2).FaceColor = [0.9 0.3 0.3];
+        ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
+        legend('Location','northeast'); grid on
+
+        applyFigureFormat(gcf, plotfmt.sz_wide, plotfmt);
+        exportFigure(gcf, ['demandBoundary_' road_keys{r}], plotfmt);
+    end
+end
+
+if plots.tuning_boundary && strcmp(sim.mode, 'full')
     Npts = Nhrs * pts_per_hr;
     for r = 1:Nroads
         road     = all_roads{r};
@@ -349,31 +586,31 @@ if plots.tuning_boundary
             mdot_out_hrly = road.Truth.MDOT_outflow(1:Nhrs) * 3600;
         end
 
-        figure('Name',['boundaryTuning_' road_keys{r}], ...
-               'Position',[50 50 1400 650],'Color','w')
-        sgtitle(['Boundary Flow Tuning: ' road.name],'FontSize',13,'FontWeight','bold')
+        figure('Name',['boundaryTuning_' road_keys{r}],'Color','w')
+        sgtitle(['Boundary Flow Tuning: ' road.name], ...
+                'FontSize',plotfmt.sgtitle_fs,'FontWeight','bold')
 
         % (1,1) Upstream inflow — hourly
         subplot(2,3,1); hold on
         if has_mdot
             bar(hrs, mdot_in_hrly,'FaceColor',[0.2 0.4 0.8],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
         end
-        plot(hrs, F_in_des_hrly,'k--o','LineWidth',1.5,'MarkerSize',4,'DisplayName','OD Desired')
-        plot(hrs, F_in_hrly,    'r-o', 'LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+        plot(hrs, F_in_des_hrly,'k--o','DisplayName','OD Desired')
+        plot(hrs, F_in_hrly,    'r-o', 'DisplayName','Sim Actual')
         hold off
         ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
-        grid on; legend('Location','northwest','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+        grid on; legend('Location','northwest'); xticks(hrs); xlim([0.5 Nhrs+0.5])
 
         % (1,2) Downstream outflow — hourly
         subplot(2,3,2); hold on
         if has_mdot
             bar(hrs, mdot_out_hrly,'FaceColor',[0.2 0.7 0.3],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
         end
-        plot(hrs, F_out_des_hrly,'k--o','LineWidth',1.5,'MarkerSize',4,'DisplayName','OD Desired')
-        plot(hrs, F_out_hrly,    'r-o', 'LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+        plot(hrs, F_out_des_hrly,'k--o','DisplayName','OD Desired')
+        plot(hrs, F_out_hrly,    'r-o', 'DisplayName','Sim Actual')
         hold off
         ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
-        grid on; legend('Location','northwest','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+        grid on; legend('Location','northwest'); xticks(hrs); xlim([0.5 Nhrs+0.5])
 
         % (1,3) Daily volume summary bar
         subplot(2,3,3)
@@ -393,7 +630,7 @@ if plots.tuning_boundary
             b(2).DisplayName = 'Sim Actual'; b(2).FaceColor = [0.9 0.3 0.3];
         end
         ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
-        legend('Location','northeast','FontSize',8); grid on
+        legend('Location','northeast'); grid on
 
         % (2,1) Inflow % error vs MDOT — hourly
         subplot(2,3,4)
@@ -403,14 +640,14 @@ if plots.tuning_boundary
             bar(hrs, (F_in_des_hrly - mdot_in_hrly) ./ denom * 100, ...
                 'FaceColor',[0.7 0.7 0.7],'FaceAlpha',0.7,'DisplayName','OD Desired')
             plot(hrs, (F_in_hrly - mdot_in_hrly) ./ denom * 100, ...
-                'r-o','LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+                'r-o','DisplayName','Sim Actual')
             yline(0,'k--','LineWidth',1)
             hold off
             ylabel('Error [%]'); xlabel('Hour of Day'); title('Inflow % Error vs MDOT')
-            grid on; legend('Location','northeast','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+            grid on; legend('Location','northeast'); xticks(hrs); xlim([0.5 Nhrs+0.5])
         else
             text(0.5,0.5,'No MDOT data','HorizontalAlignment','center', ...
-                'Units','normalized','FontSize',11); axis off
+                'Units','normalized'); axis off
         end
 
         % (2,2) Outflow % error vs MDOT — hourly
@@ -421,14 +658,14 @@ if plots.tuning_boundary
             bar(hrs, (F_out_des_hrly - mdot_out_hrly) ./ denom * 100, ...
                 'FaceColor',[0.7 0.7 0.7],'FaceAlpha',0.7,'DisplayName','OD Desired')
             plot(hrs, (F_out_hrly - mdot_out_hrly) ./ denom * 100, ...
-                'r-o','LineWidth',1.5,'MarkerSize',4,'DisplayName','Sim Actual')
+                'r-o','DisplayName','Sim Actual')
             yline(0,'k--','LineWidth',1)
             hold off
             ylabel('Error [%]'); xlabel('Hour of Day'); title('Outflow % Error vs MDOT')
-            grid on; legend('Location','northeast','FontSize',8); xticks(hrs); xlim([0.5 Nhrs+0.5])
+            grid on; legend('Location','northeast'); xticks(hrs); xlim([0.5 Nhrs+0.5])
         else
             text(0.5,0.5,'No MDOT data','HorizontalAlignment','center', ...
-                'Units','normalized','FontSize',11); axis off
+                'Units','normalized'); axis off
         end
 
         % (2,3) Daily % error summary
@@ -448,8 +685,11 @@ if plots.tuning_boundary
             grid on; xtickangle(15)
         else
             text(0.5,0.5,'No MDOT data','HorizontalAlignment','center', ...
-                'Units','normalized','FontSize',11); axis off
+                'Units','normalized'); axis off
         end
+
+        applyFigureFormat(gcf, plotfmt.sz_tall, plotfmt);
+        exportFigure(gcf, ['boundaryTuning_' road_keys{r}], plotfmt);
     end
 end
 
@@ -458,7 +698,7 @@ end
 % Compares OD model desired daily volumes vs MDOT truth vs sim actual
 % for each road's upstream and downstream boundaries.
 % ====================================================================
-if plots.tuning_conservation
+if plots.tuning_conservation && strcmp(sim.mode, 'full')
     Npts = Nhrs * pts_per_hr;
 
     % Pre-compute daily totals for all roads
@@ -508,9 +748,9 @@ if plots.tuning_conservation
     end
 
     % Conservation figure — grouped bar charts for all roads
-    figure('Name','tripConservation','Position',[100 100 1100 480],'Color','w')
+    figure('Name','tripConservation','Color','w')
     sgtitle('Daily Trip Conservation: OD Model vs MDOT Truth vs Simulation', ...
-        'FontSize',13,'FontWeight','bold')
+        'FontSize',plotfmt.sgtitle_fs,'FontWeight','bold')
 
     subplot(1,2,1)
     b = bar(categorical(road_keys), [daily_mdot_in; daily_des_in; daily_act_in]');
@@ -518,7 +758,7 @@ if plots.tuning_conservation
     b(2).DisplayName = 'OD Desired'; b(2).FaceColor = [0.7 0.7 0.7];
     b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
     ylabel('Vehicles [veh/day]'); title('Upstream Inflow: Daily Total')
-    legend('Location','northeast','FontSize',9); grid on
+    legend('Location','northeast'); grid on
 
     subplot(1,2,2)
     b = bar(categorical(road_keys), [daily_mdot_out; daily_des_out; daily_act_out]');
@@ -526,7 +766,10 @@ if plots.tuning_conservation
     b(2).DisplayName = 'OD Desired'; b(2).FaceColor = [0.7 0.7 0.7];
     b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
     ylabel('Vehicles [veh/day]'); title('Downstream Outflow: Daily Total')
-    legend('Location','northeast','FontSize',9); grid on
+    legend('Location','northeast'); grid on
+
+    applyFigureFormat(gcf, plotfmt.sz_half, plotfmt);
+    exportFigure(gcf, 'tripConservation', plotfmt);
 end
 
 % ====================================================================
@@ -536,10 +779,12 @@ if plots.space_time
     for r = 1:Nroads
         if road_enabled(r)
             road = all_roads{r};
-            figure('Name',['spaceTime_' road_keys{r}])
+            figure('Name',['spaceTime_' road_keys{r}],'Color','w')
             imagesc(sim.t/3600, road.x_centers, road.rho)
             colorbar; xlabel('Time [hr]'); ylabel('Position [ft]')
             title(['Space-Time Density: ' road.name])
+            applyFigureFormat(gcf, plotfmt.sz_single, plotfmt);
+            exportFigure(gcf, ['spaceTime_' road_keys{r}], plotfmt);
         end
     end
 end
@@ -554,12 +799,14 @@ if plots.signal_timing
             g_vec  = road.g; g_plot = g_vec; g_plot(g_vec == 0) = -1;
             band   = zeros(road.Nx, sim.Nt-1);
             band(road.signal.cell, :) = g_plot;
-            figure('Name',['signalTiming_' road_keys{r}])
+            figure('Name',['signalTiming_' road_keys{r}],'Color','w')
             imagesc(sim.t(1:end-1)/60, road.x_centers, band)
             colormap([0.6 0 0; 1 1 1; 0 0.6 0]); clim([-1 1])
             colorbar('Ticks',[-1 0 1],'TickLabels',{'Red','No Signal','Green'})
             xlabel('Time [min]'); ylabel('Position [ft]')
             title(['Signal Timing: ' road.name])
+            applyFigureFormat(gcf, plotfmt.sz_single, plotfmt);
+            exportFigure(gcf, ['signalTiming_' road_keys{r}], plotfmt);
         end
     end
 end
@@ -576,14 +823,17 @@ if plots.source_sink
             ap_seg  = cell2mat(arrayfun(@(k) road.AccessPoints(k).xSegment, ...
                                         1:Nap, 'UniformOutput', false));
             ap_name = [road.AccessPoints.name];
-            figure('Name',['sourceSink_' road_keys{r}])
+            figure('Name',['sourceSink_' road_keys{r}],'Color','w')
             for k = 1:length(ap_seg)
                 subplot(length(ap_seg),1,k)
-                plot(sim.t/3600, road.s(ap_seg(k),:),'LineWidth',1)
-                ylabel('[veh/s]'); title(ap_name(k),'FontSize',8); grid on
+                plot(sim.t/3600, road.s(ap_seg(k),:))
+                ylabel('[veh/s]'); title(ap_name(k)); grid on
             end
             xlabel('Time [hr]')
-            sgtitle(['Net Source/Sink: ' road.name])
+            sgtitle(['Net Source/Sink: ' road.name], ...
+                    'FontSize',plotfmt.sgtitle_fs,'FontWeight','bold')
+            applyFigureFormat(gcf, plotfmt.sz_stack, plotfmt);
+            exportFigure(gcf, ['sourceSink_' road_keys{r}], plotfmt);
         end
     end
 end
@@ -592,7 +842,7 @@ end
 %% OD Matrix Heatmap
 % ====================================================================
 if plots.od_matrix
-    figure('Name','odMatrix')
+    figure('Name','odMatrix','Color','w')
     imagesc(classicTrafficDemandModel.T_vehicle); colorbar
     xticks(1:Nzones); xticklabels(TAZ.names); xtickangle(30)
     yticks(1:Nzones); yticklabels(TAZ.names)
@@ -601,9 +851,11 @@ if plots.od_matrix
     for i = 1:Nzones
         for j = 1:Nzones
             text(j,i,sprintf('%.0f',classicTrafficDemandModel.T_vehicle(i,j)), ...
-                'HorizontalAlignment','center','FontSize',7,'Color','w')
+                'HorizontalAlignment','center','Color','w')
         end
     end
+    applyFigureFormat(gcf, plotfmt.sz_single, plotfmt);
+    exportFigure(gcf, 'odMatrix', plotfmt);
 end
 
 % ====================================================================
@@ -659,6 +911,59 @@ for idx = 1:N
               (2 * peakParameters.sigma(idx).^2)));
     f = f + peakParameters.w(idx) .* g;
 end
+end
+
+function applyFigureFormat(fig, sz, pf)
+% applyFigureFormat  Resize figure and apply report-grade text formatting.
+% INPUTS
+%   fig  figure handle
+%   sz   [width, height] in inches
+%   pf   plotfmt struct
+
+% Resize (preserves screen position, sets physical dimensions)
+fig.Units = 'inches';
+pos = fig.Position;
+pos(3:4) = sz;
+fig.Position = pos;
+
+% Axes: ticks, labels, titles, box style
+ax_list = findall(fig, 'Type', 'axes');
+for i = 1:numel(ax_list)
+    ax = ax_list(i);
+    ax.FontSize  = pf.tick_fs;
+    ax.LineWidth = pf.ax_lw;
+    ax.Box       = pf.ax_box;
+    ax.TickDir   = pf.tick_dir;
+    if isprop(ax, 'Title');  ax.Title.FontSize  = pf.title_fs; end
+    if isprop(ax, 'XLabel'); ax.XLabel.FontSize = pf.label_fs; end
+    if isprop(ax, 'YLabel'); ax.YLabel.FontSize = pf.label_fs; end
+end
+
+% Super-title
+sg = findall(fig, 'Tag', 'sgtitle');
+for i = 1:numel(sg)
+    sg(i).FontSize   = pf.sgtitle_fs;
+    sg(i).FontWeight = 'bold';
+end
+
+% Legends
+leg_list = findall(fig, 'Type', 'legend');
+for i = 1:numel(leg_list)
+    leg_list(i).FontSize = pf.legend_fs;
+end
+end
+
+function exportFigure(fig, name, pf)
+% exportFigure  Save figure as PNG when pf.export is true.
+% INPUTS
+%   fig   figure handle
+%   name  filename stem (no extension, no path)
+%   pf    plotfmt struct
+if ~pf.export; return; end
+if ~isfolder(pf.export_dir); mkdir(pf.export_dir); end
+out_path = fullfile(pf.export_dir, [name '.png']);
+exportgraphics(fig, out_path, 'Resolution', pf.dpi, 'BackgroundColor', 'white');
+fprintf('  Exported: %s\n', out_path)
 end
 
 function plotRoadGeometry(sim, road, x_edges, x_centers, N_lanes, signal, access)
