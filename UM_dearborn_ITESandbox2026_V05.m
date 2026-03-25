@@ -68,10 +68,10 @@ TAZ.yLocation = [      0,    0,    1900,      0,      0, 14500];  % [ft]
 % Each TAZ has an arrival peak (inbound) and departure peak (outbound)
 % Arrivals effectively become sinks from the roadway's perspective
 % Departures become sources from the roadway's perspective
-TAZ.peak_arrive = [8, 13, 12, 12, 12, 12];      % [hour of day] arrival peak per TAZ
-TAZ.sigma_arrive = [1.5, 2.0, 5, 5, 5, 5];  % [hours] arrival peak spread per TAZ
-TAZ.peak_depart = [17, 14, 12, 12, 12, 12];    % [hour of day] departure peak per TAZ
-TAZ.sigma_depart = [1.5, 2.0, 5, 5, 5, 5]; % [hours] departure peak spread per TAZ
+TAZ.peak_arrive = [14, 14, 14, 16, 16, 14];      % [hour of day] arrival peak per TAZ
+TAZ.sigma_arrive = [4, 4, 4, 4, 4, 5];  % [hours] arrival peak spread per TAZ
+TAZ.peak_depart = [14, 14, 14, 16, 16, 14];    % [hour of day] departure peak per TAZ
+TAZ.sigma_depart = [4, 4, 4, 4, 4, 5]; % [hours] departure peak spread per TAZ
 % Convert daily vehicle volumes to hourly rates using parametric Gaussian peaks
 % f_norm(h) = fraction of daily traffic in hour h  [24-element vector]
 % Arrival and departure profiles are computed per TAZ
@@ -245,7 +245,7 @@ for n = 1:sim.Nt-1
     %% Road 4 (Westbound) — x=0 at East, x=6500 at West
     % ----------------------------------------------------------------
     [rho_WB(:,n+1), F_WB(:,n), F_WB_desired(:,n), g_WB(n), g_eff_WB(:,n), s_WB(:,n)] = ...
-        LWRModel(hubbardRdWestbound, rho_NB(:,n), classicTrafficDemandModel, TAZ, sim);
+        LWRModel(hubbardRdWestbound, rho_WB(:,n), classicTrafficDemandModel, TAZ, sim);
 end
 fprintf('Simulation complete. Wall time: %.1f s\n', toc(sim_tic))
 
@@ -264,11 +264,26 @@ hubbardRdEastbound.rho = rho_EB; hubbardRdEastbound.F = F_EB;
 hubbardRdEastbound.F_desired = F_EB_desired;
 hubbardRdEastbound.g   = g_EB;   hubbardRdEastbound.g_eff = g_eff_EB;
 hubbardRdEastbound.s   = s_EB;
+% Note: Hubbard East Bound eminates from the intersection and has no
+% boundary condition; therfore, the flow measured immediately after the
+% intersection (seg. idx = 2) is taken as the boundary condition (seg. idx = 1) 
+% for tuning visualization.
+hubbardRdEastbound.F(1,:) = F_EB(2,:);
 
 hubbardRdWestbound.rho = rho_WB; hubbardRdWestbound.F = F_WB;
 hubbardRdWestbound.F_desired = F_WB_desired;
 hubbardRdWestbound.g   = g_WB;   hubbardRdWestbound.g_eff = g_eff_WB;
 hubbardRdWestbound.s   = s_WB;
+
+% Note F_desired exceptions for Hubbard Rd; must manually
+% assign due to intersection dynamics
+evergreenRdSouthboundTemporal = evergreenRdSouthbound.F(1,:)./sum(evergreenRdSouthbound.F(1,:));
+evergreenRdNorthboundTemporal = evergreenRdNorthbound.F(1,:)./sum(evergreenRdNorthbound.F(1,:));
+average_temporal_factor = (evergreenRdSouthboundTemporal+evergreenRdNorthboundTemporal)./sum(evergreenRdSouthboundTemporal+evergreenRdNorthboundTemporal);
+hubbardRdEastbound.F_desired(1,:) = average_temporal_factor...
+        .*sum(classicTrafficDemandModel.V_taz_depart(3,intersection(3).taz_idx_external),'all');
+hubbardRdWestbound.F_desired(2,:) = average_temporal_factor...
+        .*sum(classicTrafficDemandModel.V_taz_arrive(4,intersection(4).taz_idx_external),'all');
 
 % ====================================================================
 %% ====================== PLOT CONTROLS (USER INPUT) ================
@@ -276,7 +291,7 @@ hubbardRdWestbound.s   = s_WB;
 % Toggle each plot group on (true) or off (false).
 plots.tuning_boundary     = true;   % Hourly boundary flow vs MDOT truth (one fig per road)
 plots.tuning_conservation = true;   % Daily trip conservation summary across all roads
-plots.space_time          = false;  % Space-time density diagrams
+plots.space_time          = false;   % Space-time density diagrams
 plots.signal_timing       = false;  % Signal phase space-time diagrams
 plots.source_sink         = false;  % Net source/sink time series at access points
 plots.od_matrix           = false;  % OD matrix heatmap
@@ -322,7 +337,7 @@ if plots.tuning_boundary
     Npts = Nhrs * pts_per_hr;
     for r = 1:Nroads
         road     = all_roads{r};
-        has_mdot = any(road.Truth.MDOT_inflow_s > 0) || any(road.Truth.MDOT_outflow_s > 0);
+        has_mdot = any(road.Truth.MDOT_inflow > 0) || any(road.Truth.MDOT_outflow > 0);
 
         % Aggregate per-second flux to hourly vehicle counts [veh/hr]
         F_in_hrly      = sum(reshape(road.F(1,          1:Npts), pts_per_hr, Nhrs)) * sim.dt;
@@ -330,8 +345,8 @@ if plots.tuning_boundary
         F_out_hrly     = sum(reshape(road.F(road.Nx+1,  1:Npts), pts_per_hr, Nhrs)) * sim.dt;
         F_out_des_hrly = sum(reshape(road.F_desired(2,  1:Npts), pts_per_hr, Nhrs)) * sim.dt;
         if has_mdot
-            mdot_in_hrly  = road.Truth.MDOT_inflow_s(1:Nhrs)  * 3600; % [veh/hr]
-            mdot_out_hrly = road.Truth.MDOT_outflow_s(1:Nhrs) * 3600;
+            mdot_in_hrly  = road.Truth.MDOT_inflow(1:Nhrs)  * 3600; % [veh/hr]
+            mdot_out_hrly = road.Truth.MDOT_outflow(1:Nhrs) * 3600;
         end
 
         figure('Name',['boundaryTuning_' road_keys{r}], ...
@@ -455,10 +470,10 @@ if plots.tuning_conservation
     daily_act_out  = zeros(1, Nroads);
     for r = 1:Nroads
         road = all_roads{r};
-        daily_mdot_in(r)  = sum(road.Truth.MDOT_inflow_s(1:Nhrs))  * 3600;
+        daily_mdot_in(r)  = sum(road.Truth.MDOT_inflow(1:Nhrs))  * 3600;
         daily_des_in(r)   = sum(road.F_desired(1, 1:Npts)) * sim.dt;
         daily_act_in(r)   = sum(road.F(1,         1:Npts)) * sim.dt;
-        daily_mdot_out(r) = sum(road.Truth.MDOT_outflow_s(1:Nhrs)) * 3600;
+        daily_mdot_out(r) = sum(road.Truth.MDOT_outflow(1:Nhrs)) * 3600;
         daily_des_out(r)  = sum(road.F_desired(2, 1:Npts)) * sim.dt;
         daily_act_out(r)  = sum(road.F(road.Nx+1, 1:Npts)) * sim.dt;
     end

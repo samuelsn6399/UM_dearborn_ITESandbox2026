@@ -51,7 +51,7 @@ road.is_signal     = false(1, road.Nx);
 road.is_signal(road.signal.cell) = true;
 
 %% Speed Limit Configuration (User Input)
-idx_45 = ones(length(road.x_centers)); % all segments are 45 mph segments
+idx_45 = road.x_centers<=4501; % all segments are 45 mph segments
 u_free = zeros(1, road.Nx);                 % [ft/s] initialize speed limit vector
 u_free(idx_45) = 45*sim.mph_to_fts;
 

@@ -2,103 +2,69 @@
 %% ITE Sandbox Competition 2026: University of Michigan - Dearborn
 % ====================================================================
 % DESCRIPTION:
-% EVERGREENRDSOUTHBOUND.m
-% The function configures the Evergreen Rd southbound corridor properties
-% used in the simulation
-% x = 0 at NORTH end; x = 6500 at SOUTH end
+% MDOTTRUTHDATA.m
+% The function sets the truth values for simulation tuning. These values
+% are outputs only; they are not used to propogate the sim states.
+% Two sources are used to provide truth data: Michigan Traffic AADT at
+% experience.arcgis.com and MDOT Traffic Viewer at mdot.public.ms2soft.com
 % INPUTS:
-% sim       -> a struct storing the simulation properties
+% roadway    -> a member of the road struct storing the roadway name
 % OUTPUTS:
-% road      -> a struct storing the roadway properties
-%   ^ name
-%   ^ length
-%   ^ signal
-%       ^ x
-%       ^ green
-%       ^ red
-%       ^ Qsat_per_lane
-%   ^ 
+% truth      -> average hourly flow provided truth data for a 24 hour
+% period
 % =====================================================================
 function truth = MdotTruthData(roadway)
 % ====================================================================
 %% =============== MDOT Data Inputs (Truth Data) =====================
 % ====================================================================
+
+% AADT
+evergreenRdSouthbound_AADT = 2518; % [vehicles/day] (2025)
+evergreenRdNorthbound_AADT = 3042; % [vehicles/day] (2025)
+hubbardRdEastbound_AADT = 7280; % [vehicles/day] (2025)
+hubbardRdWestbound_AADT = 4497; % [vehicles/day] (2025)
+
+% Temporal Distribution Ratios (Daily -> Hourly)
+evergreenRdSouthbound_rawDistribution = ...
+    [14, 1, 7, 8, 9, 38, 66, 75, 134, 132, 152, 169, ...
+     172, 185, 206, 203, 206, 212, 144, 126, 100, 57, 39, 16]; % [vehicles/hourOfDay] (March 2021)
+evergreenRdSouthbound_distribution = ...
+    evergreenRdSouthbound_rawDistribution./sum(evergreenRdSouthbound_rawDistribution); % [dimensionless]
+evergreenRdNorthbound_rawDistribution = ...
+    [23, 10, 10, 5, 14, 21, 85, 109, 155, 155, 173, 165, ...
+     229, 223, 275, 262, 237, 249, 198, 138, 127, 78, 46, 35]; % [vehicles/hourOfDay] (March 2021)
+evergreenRdNorthbound_distribution = ...
+    evergreenRdNorthbound_rawDistribution./sum(evergreenRdNorthbound_rawDistribution); % [dimensionless]
+hubbardRdEastbound_rawDistribution = ...
+    [36, 38, 17, 22, 17, 38, 72, 108, 161, 238, 331, 491, ...
+     610, 524, 638, 647, 683, 596, 598, 532, 309, 172, 133, 69]; % [vehicles/hourOfDay] (July 2021)
+hubbardRdEastbound_distribution = ...
+    hubbardRdEastbound_rawDistribution./sum(hubbardRdEastbound_rawDistribution); % [dimensionless]
+hubbardRdWestbound_rawDistribution = ...
+    [31, 18, 16, 19, 21, 51, 136, 192, 236, 236, 330, 335, ...
+     376, 372, 370, 370, 363, 355, 298, 173, 150, 90, 80, 38]; % [vehicles/hourOfDay] (July 2021)
+hubbardRdWestbound_distribution = ...
+    hubbardRdWestbound_rawDistribution./sum(hubbardRdWestbound_rawDistribution); % [dimensionless]
+
 if roadway == "Evergreen Rd Southbound"
-    %           hour = [1    2    3    4    5     6 ]
-    MDOT_inflow_hour = [200, 180, 160, 150, 200, 500,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1200, 1800, 1500, 1100, 1000, 900,... % [veh/hour]
-    ...%        hour = [13   14    15    16    17    18  ]
-                        950, 1000, 1100, 1600, 1900, 1700,... % [veh/hour]
-    ...%        hour = [19    20   21   22   23   24 ]
-                        1200, 800, 500, 350, 250, 200]; % [veh/hour]
-
-    %           hour = [1    2    3    4    5    6  ]
-    MDOT_outflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1000, 1600, 1700, 1300, 1200, 1100,... % [veh/hour]
-    ...%        hour = [13    14    15    16    17    18  ]
-                        1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
-    ...%        hour = [19    20    21   22   23   24 ]
-                        1500, 1000, 700, 450, 300, 220]; % [veh/hour]
+    AADT = evergreenRdSouthbound_AADT;
+    hourlyDistribution = evergreenRdSouthbound_distribution;
 elseif roadway == "Evergreen Rd Northbound"
-    %           hour = [1    2    3    4    5    6  ]
-    MDOT_inflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1000, 1600, 1700, 1300, 1200, 1100,... % [veh/hour]
-    ...%        hour = [13    14    15    16    17    18  ]
-                        1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
-    ...%        hour = [19    20    21   22   23   24 ]
-                        1500, 1000, 700, 450, 300, 220]; % [veh/hour]
-    
-    %           hour = [1    2    3    4    5     6 ]
-    MDOT_outflow_hour = [200, 180, 160, 150, 200, 500,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1200, 1800, 1500, 1100, 1000, 900,... % [veh/hour]
-    ...%        hour = [13   14    15    16    17    18  ]
-                        950, 1000, 1100, 1600, 1900, 1700,... % [veh/hour]
-    ...%        hour = [19    20   21   22   23   24 ]
-                        1200, 800, 500, 350, 250, 200]; % [veh/hour]
+    AADT = evergreenRdNorthbound_AADT;
+    hourlyDistribution = evergreenRdNorthbound_distribution;
 elseif roadway == "Hubbard Rd Eastbound"
-    %           hour = [1    2    3    4    5     6 ]
-    MDOT_inflow_hour = [200, 180, 160, 150, 200, 500,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1200, 1800, 1500, 1100, 1000, 900,... % [veh/hour]
-    ...%        hour = [13   14    15    16    17    18  ]
-                        950, 1000, 1100, 1600, 1900, 1700,... % [veh/hour]
-    ...%        hour = [19    20   21   22   23   24 ]
-                        1200, 800, 500, 350, 250, 200]; % [veh/hour]
-
-    %           hour = [1    2    3    4    5    6  ]
-    MDOT_outflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1000, 1600, 1700, 1300, 1200, 1100,... % [veh/hour]
-    ...%        hour = [13    14    15    16    17    18  ]
-                        1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
-    ...%        hour = [19    20    21   22   23   24 ]
-                        1500, 1000, 700, 450, 300, 220]; % [veh/hour]
+    AADT = hubbardRdEastbound_AADT;
+    hourlyDistribution = hubbardRdEastbound_distribution;
 elseif roadway == "Hubbard Rd Westbound"
-    %           hour = [1    2    3    4    5    6  ]
-    MDOT_inflow_hour =[180, 160, 150, 140, 180, 450,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1000, 1600, 1700, 1300, 1200, 1100,... % [veh/hour]
-    ...%        hour = [13    14    15    16    17    18  ]
-                        1150, 1200, 1300, 1800, 2100, 2000,... % [veh/hour]
-    ...%        hour = [19    20    21   22   23   24 ]
-                        1500, 1000, 700, 450, 300, 220]; % [veh/hour]
-    
-    %           hour = [1    2    3    4    5     6 ]
-    MDOT_outflow_hour = [200, 180, 160, 150, 200, 500,... % [veh/hour]
-    ...%        hour = [7     8     9     10    11    12 ]
-                        1200, 1800, 1500, 1100, 1000, 900,... % [veh/hour]
-    ...%        hour = [13   14    15    16    17    18  ]
-                        950, 1000, 1100, 1600, 1900, 1700,... % [veh/hour]
-    ...%        hour = [19    20   21   22   23   24 ]
-                        1200, 800, 500, 350, 250, 200]; % [veh/hour]
+    AADT = hubbardRdWestbound_AADT;
+    hourlyDistribution = hubbardRdWestbound_distribution;
 else
     error("MDOTTRUTHDATA: No Roadway Found")
 end
 
-truth.MDOT_inflow_s  = MDOT_inflow_hour  / 3600; % [veh/s]
-truth.MDOT_outflow_s = MDOT_outflow_hour / 3600; % [veh/s]
+% inflow equals outflow by conservation of cars; assuming equivalent
+% temporal factors and a very small time delay between inflow and outflow
+% dynamics
+truth.MDOT_inflow  = AADT.*hourlyDistribution./ 3600; % [veh/s]
+truth.MDOT_outflow  = AADT.*hourlyDistribution./ 3600; % [veh/s]
 end
