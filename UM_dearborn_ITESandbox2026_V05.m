@@ -94,9 +94,11 @@ TAZ.yLocation = [      0,    0,    1900,      0,      0, 14500];  % [ft]
 % Arrivals effectively become sinks from the roadway's perspective
 % Departures become sources from the roadway's perspective
 TAZ.peak_arrive = [14, 14, 14, 16, 16, 14];      % [hour of day] arrival peak per TAZ
-TAZ.sigma_arrive = [4, 4, 4, 4, 4, 5];  % [hours] arrival peak spread per TAZ
+% [Strategic Class Scheduling] sigma increased to 6 on all TAZs to spread traffic volume over more time
+TAZ.sigma_arrive = [6, 6, 6, 6, 6, 6];  % [hours] arrival peak spread per TAZ
 TAZ.peak_depart = [14, 14, 14, 16, 16, 14];    % [hour of day] departure peak per TAZ
-TAZ.sigma_depart = [4, 4, 4, 4, 4, 5]; % [hours] departure peak spread per TAZ
+% [Strategic Class Scheduling] sigma increased to 6 on all TAZs to spread traffic volume over more time
+TAZ.sigma_depart = [6, 6, 6, 6, 6, 6]; % [hours] departure peak spread per TAZ
 % Convert daily vehicle volumes to hourly rates using parametric Gaussian peaks
 % f_norm(h) = fraction of daily traffic in hour h  [24-element vector]
 % Arrival and departure profiles are computed per TAZ
@@ -128,20 +130,20 @@ end
 % one entry per TAZ-road connection
 TAZ.AccessPoints(1).taz_idx  = 1;                    % index into TAZ.names (MainCampus)
 TAZ.AccessPoints(1).roadName = evergreenRdSouthbound.name;
-TAZ.AccessPoints(1).xLocal   = [1700, 3200, 4500, 5400]; % [ft] in road-local coords
-TAZ.AccessPoints(1).split    = [0.10, 0.60, 0.20, 0.10]; % must sum to 1.0
+% [Valleyview Dr Roundabout] removed access at 5400 ft; [Lone Oak Dr Roundabout] removed access at 3200 ft
+% Remaining splits renormalized: original [0.10, 0.60, 0.20, 0.10] → keep indices 1 and 3 → [0.10, 0.20] → /0.30
+TAZ.AccessPoints(1).xLocal   = [1700, 4500]; % [ft] in road-local coords
+TAZ.AccessPoints(1).split    = [1/3, 2/3];   % must sum to 1.0
 TAZ.AccessPoints(1).name     = ["University Secondary Entrance 1", ...
-               "University Primary Entrance",     ...
-               "University Tertiary Entrance",    ...
-               "University Secondary Entrance 2"];
+               "University Tertiary Entrance"];
 
 TAZ.AccessPoints(2).taz_idx  = 1;                    % MainCampus on the NB road
 TAZ.AccessPoints(2).roadName = evergreenRdNorthbound.name;
-TAZ.AccessPoints(2).xLocal   = [1100, 2000, 3300, 4800];
-TAZ.AccessPoints(2).split    = [0.10, 0.20, 0.60, 0.10];
-TAZ.AccessPoints(2).name     = ["University Secondary Entrance 1", ...
-               "University Primary Entrance",     ...
-               "University Tertiary Entrance",    ...
+% [Valleyview Dr Roundabout] removed access at 1100 ft; [Lone Oak Dr Roundabout] removed access at 2000 ft
+% Remaining splits renormalized: original [0.10, 0.20, 0.60, 0.10] → keep indices 3 and 4 → [0.60, 0.10] → /0.70
+TAZ.AccessPoints(2).xLocal   = [3300, 4800];
+TAZ.AccessPoints(2).split    = [6/7, 1/7];   % must sum to 1.0
+TAZ.AccessPoints(2).name     = ["University Tertiary Entrance", ...
                "University Secondary Entrance 2"];
 
 TAZ.AccessPoints(3).taz_idx  = 2;

@@ -37,7 +37,15 @@ demand.beta      = 0.12;               % [1/min] friction factor decay rate
 demand.gravity_on_off = false;              % false = turn off gravity model
 
 % ---- Step 3 Parameters: Mode Choice ----
-demand.auto_occupancy = 1.25;           % [persons/vehicle] average occupancy
+% Baseline: 1.25 persons/vehicle
+% [Hubbard Dr - Evergreen Rd Protected Bike Lanes]       +0.10 (10% additional)
+% [Bus Stops Relocated to On-Campus Locations]           +0.10 (10% additional)
+% [Charging Stations]                                    +0.02 ( 2% additional)
+% [Bike Repair Stations]                                 +0.02 ( 2% additional)
+% [Online Bike Registration]                             +0.02 ( 2% additional)
+% [Bike Maintenance and Safety Awareness]                +0.02 ( 2% additional)
+% [Semesterly Bike Rental]                               +0.02 ( 2% additional)
+demand.auto_occupancy = 1.55;           % [persons/vehicle] average occupancy (1.25 baseline + 0.30 interventions)
 
 % ---- Step 4 Parameters: Route Choice ----
 % ???
@@ -106,6 +114,8 @@ demand.P = zeros(1, Nzones);
 for iz = 1:Nzones
     demand.P(iz) = sum(H_list{iz} .* R_list{iz}, 'all');
 end
+% [Proposed Student Housing Includes Mixed-Use Development] -10% trip generation from StudentHousing (TAZ 3)
+demand.P(3) = demand.P(3) * 0.90;
 
 %% Step 1b: Trip Attractions (Linear Land-Use Model, NCHRP 716)
 % A_j = rate_emp*Employment_j + rate_enroll*Enrollment_j + rate_retail*RetailArea_j

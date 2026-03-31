@@ -34,10 +34,8 @@ road.boundary_idx = [6, 0]; % [East Boundary index, No Boundary index]
 
 %% Configure Lanes and Corridor Width
 road.N_lanes = zeros(1, road.Nx);               % lanes at a segment
-road.N_lanes(road.x_centers>=   1 & road.x_centers<=2000) = 3;
-road.N_lanes(road.x_centers>=2001 & road.x_centers<=3000) = 2;
-road.N_lanes(road.x_centers>=3001 & road.x_centers<=3500) = 3;
-road.N_lanes(road.x_centers>=3501 & road.x_centers<=4500) = 2;
+% [Traffic Calming: Hubbard Dr and Evergreen Rd] Uniform 4 lanes on all segments
+road.N_lanes(:) = 4;
 
 %% Signal Configuration (User Input)
 road.signal.x = 500; % [ft]
@@ -49,11 +47,15 @@ road.signal.period = road.signal.green + road.signal.red;
 road.signal.Qsat   = road.signal.Qsat_per_lane * road.N_lanes(road.signal.cell);
 road.is_signal     = false(1, road.Nx);
 road.is_signal(road.signal.cell) = true;
+% [Southfield Rd One-Bridge Roundabout] Hubbard signal removed
+road.is_signal(:) = false;
 
 %% Speed Limit Configuration (User Input)
-idx_45 = road.x_centers<=4501; % all segments are 45 mph segments
 u_free = zeros(1, road.Nx);                 % [ft/s] initialize speed limit vector
-u_free(idx_45) = 45*sim.mph_to_fts;
+% [Traffic Calming: Hubbard Dr and Evergreen Rd] 35 mph base for all segments
+u_free(:) = 35*sim.mph_to_fts;
+% [Beechtree Ln Pedestrian Crossing Table] 25 mph at segment containing 2500 ft
+u_free(road.x_centers >= 2500 & road.x_centers < 3000) = 25*sim.mph_to_fts;
 
 %% Traffic Flow Model (Inherited From Top Level Sim)
 road.FD = FD;

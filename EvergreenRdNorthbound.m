@@ -34,9 +34,8 @@ road.boundary_idx = [5, 4]; % [South Boundary index, North Boundary index]
 
 %% Configure Lanes and Corridor Width
 road.N_lanes = zeros(1, road.Nx);               % lanes at a segment
-road.N_lanes(road.x_centers>=   1 & road.x_centers<=500) = 3;
-road.N_lanes(road.x_centers>=501 & road.x_centers<=2500) = 2;
-road.N_lanes(road.x_centers>=2501 & road.x_centers<=6500) = 3;
+% [Traffic Calming: Hubbard Dr and Evergreen Rd] Uniform 4 lanes on all segments
+road.N_lanes(:) = 4;
 
 %% Signal Configuration (User Input)
 road.signal.x = 500; % [ft]
@@ -50,9 +49,13 @@ road.is_signal     = false(1, road.Nx);
 road.is_signal(road.signal.cell) = true;
 
 %% Speed Limit Configuration (User Input)
-idx_40 = road.x_centers<=6501; % all road segments are 40 mph segments
 u_free = zeros(1, road.Nx);                 % [ft/s] initialize speed limit vector
-u_free(idx_40) = 40*sim.mph_to_fts;
+% [Traffic Calming: Hubbard Dr and Evergreen Rd] 35 mph base for all segments
+u_free(:) = 35*sim.mph_to_fts;
+% [Valleyview Dr Dutch Roundabout] 25 mph at segment containing 1100 ft
+u_free(road.x_centers >= 1000 & road.x_centers < 1500) = 25*sim.mph_to_fts;
+% [Lone Oak Dr Dutch Roundabout] 25 mph at segment containing 2000 ft
+u_free(road.x_centers >= 2000 & road.x_centers < 2500) = 25*sim.mph_to_fts;
 
 %% Traffic Flow Model (Inherited From Top Level Sim)
 road.FD = FD;
