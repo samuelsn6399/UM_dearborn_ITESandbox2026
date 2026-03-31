@@ -362,12 +362,12 @@ plots.road_WB = true;
 % exported PNGs have predictable physical dimensions at the chosen DPI.
 % -----------------------------------------------------------------------
 % Typography
-plotfmt.font        = 'Arial';    % typeface ('Arial', 'Times New Roman', etc.)
+plotfmt.font        = 'Times New Roman';    % typeface ('Arial', 'Times New Roman', etc.)
 plotfmt.sgtitle_fs  = 32;         % super-title (sgtitle) font size [pt]
 plotfmt.title_fs    = 26;         % subplot title font size [pt]
-plotfmt.label_fs    = 18;         % axis label (xlabel/ylabel) font size [pt]
-plotfmt.tick_fs     = 14;          % tick label font size [pt]
-plotfmt.legend_fs   = 12;          % legend font size [pt]
+plotfmt.label_fs    = 24;         % axis label (xlabel/ylabel) font size [pt]
+plotfmt.tick_fs     = 18;          % tick label font size [pt]
+plotfmt.legend_fs   = 24;          % legend font size [pt]
 % Lines
 plotfmt.lw          = 1.5;        % data line width [pt]
 plotfmt.ms          = 4;          % marker size [pt]
@@ -545,7 +545,7 @@ if plots.demand_boundary
         plot(h_plot, od_in_hrly, 'r-o','DisplayName','OD Model')
         hold off
         ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
-        grid on; legend('Location','northwest'); xticks(h_plot); xlim([0.5 24.5])
+        grid on; legend('Location','northoutside'); xticks(0:6:24); xlim([0.5 24.5])
 
         % Outflow
         subplot(1,3,2); hold on
@@ -553,7 +553,7 @@ if plots.demand_boundary
         plot(h_plot, od_out_hrly, 'r-o','DisplayName','OD Model')
         hold off
         ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
-        grid on; legend('Location','northwest'); xticks(h_plot); xlim([0.5 24.5])
+        grid on; legend('Location','northoutside'); xticks(0:6:24); xlim([0.5 24.5])
 
         % Daily totals bar
         subplot(1,3,3)
@@ -563,7 +563,7 @@ if plots.demand_boundary
         b_hdl(1).DisplayName = 'MDOT Truth'; b_hdl(1).FaceColor = [0.2 0.4 0.8];
         b_hdl(2).DisplayName = 'OD Model';   b_hdl(2).FaceColor = [0.9 0.3 0.3];
         ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
-        legend('Location','northeast'); grid on
+        legend('Location','northoutside'); grid on
 
         applyFigureFormat(gcf, plotfmt.sz_wide, plotfmt);
         exportFigure(gcf, ['demandBoundary_' road_keys{r}], plotfmt);
@@ -600,6 +600,7 @@ if plots.tuning_boundary && strcmp(sim.mode, 'full')
         hold off
         ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
         grid on; legend('Location','northwest'); xticks(hrs); xlim([0.5 Nhrs+0.5])
+        set(gca,'XLim',[0 24],'XTick',1:6:24)
 
         % (1,2) Downstream outflow — hourly
         subplot(2,3,2); hold on
@@ -611,6 +612,7 @@ if plots.tuning_boundary && strcmp(sim.mode, 'full')
         hold off
         ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
         grid on; legend('Location','northwest'); xticks(hrs); xlim([0.5 Nhrs+0.5])
+        set(gca,'XLim',[0 24],'XTick',0:6:24)
 
         % (1,3) Daily volume summary bar
         subplot(2,3,3)
@@ -631,6 +633,7 @@ if plots.tuning_boundary && strcmp(sim.mode, 'full')
         end
         ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
         legend('Location','northeast'); grid on
+        set(gca,'XLim',[0 24],'XTick',0:6:24)
 
         % (2,1) Inflow % error vs MDOT — hourly
         subplot(2,3,4)
@@ -759,6 +762,7 @@ if plots.tuning_conservation && strcmp(sim.mode, 'full')
     b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
     ylabel('Vehicles [veh/day]'); title('Upstream Inflow: Daily Total')
     legend('Location','northeast'); grid on
+    set(gca,'XLim',[0 24],'XTick',0:6:24)
 
     subplot(1,2,2)
     b = bar(categorical(road_keys), [daily_mdot_out; daily_des_out; daily_act_out]');
@@ -767,6 +771,7 @@ if plots.tuning_conservation && strcmp(sim.mode, 'full')
     b(3).DisplayName = 'Sim Actual'; b(3).FaceColor = [0.9 0.3 0.3];
     ylabel('Vehicles [veh/day]'); title('Downstream Outflow: Daily Total')
     legend('Location','northeast'); grid on
+    set(gca,'XLim',[0 24],'XTick',0:6:24)
 
     applyFigureFormat(gcf, plotfmt.sz_half, plotfmt);
     exportFigure(gcf, 'tripConservation', plotfmt);
@@ -775,13 +780,27 @@ end
 % ====================================================================
 %% Space-Time Density Diagrams
 % ====================================================================
+ite_colormap_full_res = 20;
+ite_colormap_full_R1 = linspace(100,100,ite_colormap_full_res/2);
+ite_colormap_full_R2 = linspace(100,234,ite_colormap_full_res/2+1);
+ite_colormap_full_G1 = linspace( 38,167,ite_colormap_full_res/2);
+ite_colormap_full_G2 = linspace(167,170,ite_colormap_full_res/2+1);
+ite_colormap_full_B1 = flip(linspace(11,103,ite_colormap_full_res/2));
+ite_colormap_full_B2 = flip(linspace(0,11,ite_colormap_full_res/2+1));
+ite_colormap_full = zeros(20,3);
+ite_colormap_full(:,1) = [ite_colormap_full_R1,ite_colormap_full_R2(2:end)]./255;
+ite_colormap_full(:,2) = [ite_colormap_full_G1,ite_colormap_full_G2(2:end)]./255;
+ite_colormap_full(:,3) = [ite_colormap_full_B1,ite_colormap_full_B2(2:end)]./255;
+
 if plots.space_time
     for r = 1:Nroads
         if road_enabled(r)
             road = all_roads{r};
             figure('Name',['spaceTime_' road_keys{r}],'Color','w')
             imagesc(sim.t/3600, road.x_centers, road.rho)
-            colorbar; xlabel('Time [hr]'); ylabel('Position [ft]')
+            colormap(ite_colormap_full)
+            c = colorbar; xlabel('Time [hr]'); ylabel('Position [ft]')
+            c.Label.String = 'Vehicles/ft'
             title(['Space-Time Density: ' road.name])
             applyFigureFormat(gcf, plotfmt.sz_single, plotfmt);
             exportFigure(gcf, ['spaceTime_' road_keys{r}], plotfmt);
@@ -841,9 +860,19 @@ end
 % ====================================================================
 %% OD Matrix Heatmap
 % ====================================================================
+ite_colormap_simple_res = 20;
+ite_colormap_simple_R = flip(linspace(0,136,ite_colormap_simple_res));
+ite_colormap_simple_G = flip(linspace(88,139,ite_colormap_simple_res));
+ite_colormap_simple_B = flip(linspace(124,141,ite_colormap_simple_res));
+ite_colormap_simple = zeros(20,3);
+ite_colormap_simple(:,1) = ite_colormap_simple_R./255;
+ite_colormap_simple(:,2) = ite_colormap_simple_G./255;
+ite_colormap_simple(:,3) = ite_colormap_simple_B./255;
+
 if plots.od_matrix
     figure('Name','odMatrix','Color','w')
-    imagesc(classicTrafficDemandModel.T_vehicle); colorbar
+    imagesc(classicTrafficDemandModel.T_vehicle); colormap(ite_colormap_simple); c = colorbar("Location","southoutside");
+    c.Label.String = 'Vehicles/Day';
     xticks(1:Nzones); xticklabels(TAZ.names); xtickangle(30)
     yticks(1:Nzones); yticklabels(TAZ.names)
     xlabel('Destination Zone'); ylabel('Origin Zone')
@@ -851,7 +880,7 @@ if plots.od_matrix
     for i = 1:Nzones
         for j = 1:Nzones
             text(j,i,sprintf('%.0f',classicTrafficDemandModel.T_vehicle(i,j)), ...
-                'HorizontalAlignment','center','Color','w')
+                'HorizontalAlignment','center','Color','w','FontSize',plotfmt.legend_fs)
         end
     end
     applyFigureFormat(gcf, plotfmt.sz_single, plotfmt);
