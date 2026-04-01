@@ -363,14 +363,14 @@ plots.road_WB = true;
 % -----------------------------------------------------------------------
 % Typography
 plotfmt.font        = 'Times New Roman';    % typeface ('Arial', 'Times New Roman', etc.)
-plotfmt.sgtitle_fs  = 32;         % super-title (sgtitle) font size [pt]
-plotfmt.title_fs    = 26;         % subplot title font size [pt]
-plotfmt.label_fs    = 24;         % axis label (xlabel/ylabel) font size [pt]
-plotfmt.tick_fs     = 18;          % tick label font size [pt]
-plotfmt.legend_fs   = 24;          % legend font size [pt]
+plotfmt.sgtitle_fs  = 42;         % super-title (sgtitle) font size [pt]
+plotfmt.title_fs    = 36;         % subplot title font size [pt]
+plotfmt.label_fs    = 36;         % axis label (xlabel/ylabel) font size [pt]
+plotfmt.tick_fs     = 36;          % tick label font size [pt]
+plotfmt.legend_fs   = 36;          % legend font size [pt]
 % Lines
-plotfmt.lw          = 1.5;        % data line width [pt]
-plotfmt.ms          = 4;          % marker size [pt]
+plotfmt.lw          = 2;        % data line width [pt]
+plotfmt.ms          = 6;          % marker size [pt]
 % Axes appearance
 plotfmt.ax_box      = 'on';       % 'on' | 'off' — axis border box
 plotfmt.tick_dir    = 'in';       % 'in' | 'out' — tick direction
@@ -544,7 +544,7 @@ if plots.demand_boundary
         bar(h_plot, mdot_in_hrly, 'FaceColor',[0.2 0.4 0.8],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
         plot(h_plot, od_in_hrly, 'r-o','DisplayName','OD Model')
         hold off
-        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Inflow')
         grid on; legend('Location','northoutside'); xticks(0:6:24); xlim([0.5 24.5])
 
         % Outflow
@@ -552,7 +552,7 @@ if plots.demand_boundary
         bar(h_plot, mdot_out_hrly,'FaceColor',[0.2 0.7 0.3],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
         plot(h_plot, od_out_hrly, 'r-o','DisplayName','OD Model')
         hold off
-        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Outflow')
         grid on; legend('Location','northoutside'); xticks(0:6:24); xlim([0.5 24.5])
 
         % Daily totals bar
@@ -562,7 +562,7 @@ if plots.demand_boundary
         b_hdl = bar(categorical({'Inflow','Outflow'}), daily_mat');
         b_hdl(1).DisplayName = 'MDOT Truth'; b_hdl(1).FaceColor = [0.2 0.4 0.8];
         b_hdl(2).DisplayName = 'OD Model';   b_hdl(2).FaceColor = [0.9 0.3 0.3];
-        ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
+        ylabel('Vehicles [veh/day]'); title('Daily Volume')
         legend('Location','northoutside'); grid on
 
         applyFigureFormat(gcf, plotfmt.sz_wide, plotfmt);
