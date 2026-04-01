@@ -365,11 +365,11 @@ plots.road_WB = true;
 % -----------------------------------------------------------------------
 % Typography
 plotfmt.font        = 'Times New Roman';    % typeface ('Arial', 'Times New Roman', etc.)
-plotfmt.sgtitle_fs  = 32;         % super-title (sgtitle) font size [pt]
-plotfmt.title_fs    = 26;         % subplot title font size [pt]
-plotfmt.label_fs    = 24;         % axis label (xlabel/ylabel) font size [pt]
-plotfmt.tick_fs     = 18;          % tick label font size [pt]
-plotfmt.legend_fs   = 24;          % legend font size [pt]
+plotfmt.sgtitle_fs  = 42;         % super-title (sgtitle) font size [pt]
+plotfmt.title_fs    = 36;         % subplot title font size [pt]
+plotfmt.label_fs    = 36;         % axis label (xlabel/ylabel) font size [pt]
+plotfmt.tick_fs     = 36;          % tick label font size [pt]
+plotfmt.legend_fs   = 36;          % legend font size [pt]
 % Lines
 plotfmt.lw          = 1.5;        % data line width [pt]
 plotfmt.ms          = 4;          % marker size [pt]
