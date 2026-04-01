@@ -546,7 +546,7 @@ if plots.demand_boundary
         bar(h_plot, mdot_in_hrly, 'FaceColor',[0.2 0.4 0.8],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
         plot(h_plot, od_in_hrly, 'r-o','DisplayName','OD Model')
         hold off
-        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Upstream Inflow')
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Inflow')
         grid on; legend('Location','northoutside'); xticks(0:6:24); xlim([0.5 24.5])
 
         % Outflow
@@ -554,7 +554,7 @@ if plots.demand_boundary
         bar(h_plot, mdot_out_hrly,'FaceColor',[0.2 0.7 0.3],'FaceAlpha',0.5,'DisplayName','MDOT Truth')
         plot(h_plot, od_out_hrly, 'r-o','DisplayName','OD Model')
         hold off
-        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Downstream Outflow')
+        ylabel('Flow [veh/hr]'); xlabel('Hour of Day'); title('Outflow')
         grid on; legend('Location','northoutside'); xticks(0:6:24); xlim([0.5 24.5])
 
         % Daily totals bar
@@ -564,7 +564,7 @@ if plots.demand_boundary
         b_hdl = bar(categorical({'Inflow','Outflow'}), daily_mat');
         b_hdl(1).DisplayName = 'MDOT Truth'; b_hdl(1).FaceColor = [0.2 0.4 0.8];
         b_hdl(2).DisplayName = 'OD Model';   b_hdl(2).FaceColor = [0.9 0.3 0.3];
-        ylabel('Vehicles [veh/day]'); title('Daily Volume Summary')
+        ylabel('Vehicles [veh/day]'); title('Daily Volume')
         legend('Location','northoutside'); grid on
 
         applyFigureFormat(gcf, plotfmt.sz_wide, plotfmt);
