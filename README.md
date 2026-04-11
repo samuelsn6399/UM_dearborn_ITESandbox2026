@@ -16,6 +16,7 @@ Macroscopic traffic flow simulation of the University of Michigan–Dearborn cor
 8. [Data Files](#8-data-files)
 9. [Function Reference](#9-function-reference)
 10. [Units & Coordinate Conventions](#10-units--coordinate-conventions)
+![Roadway Overview](roadwayClassificationV01.png)
 
 ---
 
