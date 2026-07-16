@@ -18,7 +18,10 @@ import numpy as np
 import pandas as pd
 
 
-def classic_traffic_demand_model(zone: dict, project_path=None) -> dict:
+def classic_traffic_demand_model(zone: dict,
+                                  project_path=None,
+                                  od_access: np.ndarray = None,
+                                  auto_share: np.ndarray = None) -> dict:
     """
     Run the four-step travel demand model.
 
@@ -31,6 +34,16 @@ def classic_traffic_demand_model(zone: dict, project_path=None) -> dict:
     project_path : Path or str, optional
         Folder containing HouseholdData.xlsx and TripRateData.xlsx.
         Defaults to the current working directory.
+    od_access    : ndarray (Nroads, Nzones, Nzones), optional
+        Binary OD-access tensor: od_access[r, i, j] = 1 if trips from zone i
+        to zone j use road r.  When None, a hard-coded UM-Dearborn fallback
+        is used (backward-compatibility only — should always be supplied
+        via project config in production use).
+    auto_share   : ndarray (Nzones,), optional
+        Per-zone fraction of person-trips made by private auto [0–1].
+        When supplied, overrides the scalar ``auto_occupancy`` for Step 3
+        (mode choice), enabling multi-modal scenario modelling.
+        When None, the default scalar occupancy (1.25 persons/vehicle) is used.
 
     Returns
     -------
@@ -144,37 +157,50 @@ def classic_traffic_demand_model(zone: dict, project_path=None) -> dict:
     demand['T_person'] = T_person
 
     # ------------------------------------------------------------------
-    # Step 3: Mode Choice (average vehicle occupancy)
+    # Step 3: Mode Choice
+    # Baseline: uniform scalar auto_occupancy (persons/vehicle).
+    # Scenario: per-zone auto_share [fraction of person-trips by auto]
+    #   T_vehicle[i,j] = T_person[i,j] * auto_share[i] / persons_per_vehicle
+    #   where persons_per_vehicle defaults to auto_occupancy.
     # ------------------------------------------------------------------
-    demand['T_vehicle'] = T_person / demand['auto_occupancy']
+    if auto_share is not None:
+        # auto_share is fraction of trips by auto; convert to vehicle trips
+        # using a fixed vehicle occupancy of 1.0 (auto_share already
+        # accounts for mode split; person-trips × auto_share = auto person-trips;
+        # divide by occupancy to get vehicle trips)
+        occupancy = demand['auto_occupancy']
+        share_matrix = np.outer(auto_share, np.ones(Nzones))  # broadcast over cols
+        demand['T_vehicle'] = T_person * share_matrix / occupancy
+        demand['auto_share_applied'] = auto_share.copy()
+    else:
+        demand['T_vehicle'] = T_person / demand['auto_occupancy']
 
     # ------------------------------------------------------------------
     # Step 4: Network Loading — map OD matrix to road source/sink flows
     # ------------------------------------------------------------------
-    # OD-access matrices: 1 = this OD pair uses this road, 0 = does not
-    # Rows = origins, Cols = destinations
-    # [Campus, Shop, StudHsg, North, South, East]  (1-based TAZ order)
-    ev_sb = np.array([
-        [0, 1, 0, 0, 1, 0],
-        [0, 0, 0, 0, 1, 0],
-        [1, 1, 0, 0, 1, 0],
-        [1, 1, 1, 0, 1, 1],
-        [0, 0, 0, 0, 0, 0],
-        [1, 1, 0, 0, 1, 0],
-    ], dtype=float)
-    ev_nb = ev_sb.T
-    hub_eb = np.array([
-        [0, 0, 1, 0, 0, 1],
-        [0, 0, 1, 0, 0, 1],
-        [0, 0, 0, 0, 0, 1],
-        [0, 0, 1, 0, 0, 1],
-        [0, 0, 1, 0, 0, 1],
-        [0, 0, 0, 0, 0, 0],
-    ], dtype=float)
-    hub_wb = hub_eb.T
+    if od_access is not None:
+        OD_access = np.asarray(od_access, dtype=float)
+    else:
+        # Fallback: UM-Dearborn hard-coded matrices (backward-compat only)
+        # New projects must always supply od_access via project config.
+        ev_sb = np.array([
+            [0, 1, 0, 0, 1, 0],
+            [0, 0, 0, 0, 1, 0],
+            [1, 1, 0, 0, 1, 0],
+            [1, 1, 1, 0, 1, 1],
+            [0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 1, 0],
+        ], dtype=float)
+        hub_eb = np.array([
+            [0, 0, 1, 0, 0, 1],
+            [0, 0, 1, 0, 0, 1],
+            [0, 0, 0, 0, 0, 1],
+            [0, 0, 1, 0, 0, 1],
+            [0, 0, 1, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0],
+        ], dtype=float)
+        OD_access = np.stack([ev_sb, ev_sb.T, hub_eb, hub_eb.T], axis=0)
 
-    # OD_access shape: (Nroads, Nzones, Nzones)
-    OD_access = np.stack([ev_sb, ev_nb, hub_eb, hub_wb], axis=0)
     Nroads = OD_access.shape[0]
 
     T_veh = demand['T_vehicle']

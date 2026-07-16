@@ -172,7 +172,9 @@ config file, not a new `.m` file.
 - Signal cell index: `np.argmax(x_centers >= signal['x'])` — move this into the initializer
 
 ### Status
-[ ] pending
+[x] done — CorridorConfig dataclass, initialize_corridor(), and load_corridor_config() delivered
+    in corridor_sim/engine/initialize_corridor.py. All 4 corridors load from corridor_config.xlsx
+    with correct keys, shapes, lane/speed profiles, and signal configuration. PASS.
 
 ---
 
@@ -221,7 +223,9 @@ not a software project.
 - `run_simulation.py` (from Sub-Task 1): TAZ dict, access points list, and intersection list still inline
 
 ### Status
-[ ] pending
+[x] done — truth_data.xlsx written; load_truth_data.py and load_od_access.py added to engine;
+    demand_model.py accepts od_access parameter; QuickTune loop is data-driven from config;
+    run_simulation.py contains zero hard-coded project literals. Full simulation: PASS.
 
 ---
 
@@ -272,7 +276,9 @@ makes the pitch compelling — the firm can show a client three alternatives in 
   fold it into the scenario config system as a special `QuickTune` scenario type
 
 ### Status
-[ ] pending
+[x] done — apply_scenario.py, plot_scenario_comparison.py built; demand_model.py extended
+    with auto_share parameter; scenario_config.xlsx written with 4 demo scenarios;
+    run_simulation.py wired with --scenario arg; all 4 scenarios validated end-to-end.
 
 ---
 

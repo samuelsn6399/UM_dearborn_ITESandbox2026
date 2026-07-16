@@ -30,15 +30,21 @@ matplotlib.use('Agg')           # non-interactive backend; swap to 'TkAgg' for l
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-from corridor_sim.engine.demand_model import classic_traffic_demand_model
-from corridor_sim.engine.truth_data   import mdot_truth_data
-from corridor_sim.engine.helpers      import (
+from corridor_sim.engine.demand_model        import classic_traffic_demand_model
+from corridor_sim.engine.load_truth_data     import load_truth_data
+from corridor_sim.engine.load_od_access      import load_od_access
+from corridor_sim.engine.apply_scenario      import (apply_scenario, load_scenario_list,
+                                                      scenario_config_exists)
+from corridor_sim.engine.plot_scenario_comparison import (plot_scenario_comparison,
+                                                           print_scenario_comparison_table)
+from corridor_sim.engine.helpers             import (
     parametric_peaks, hour_index,
     apply_figure_format, export_figure,
     plot_road_geometry, map_access_points, map_intersection_points,
 )
-from corridor_sim.engine.lwr_model    import lwr_model
-from corridor_sim.engine.initialize_corridor import initialize_corridor, load_corridor_config
+from corridor_sim.engine.lwr_model           import lwr_model
+from corridor_sim.engine.initialize_corridor import (initialize_corridor,
+                                                      load_corridor_config)
 
 
 # ============================================================
@@ -135,13 +141,19 @@ def _parse_args():
                         choices=['full', 'demand_only'],
                         help="'full' = run LWR solver; "
                              "'demand_only' = skip solver (fast calibration)")
+    parser.add_argument(
+        '--scenario', default=None,
+        help='Named scenario to apply (must exist in scenario_config.xlsx). '
+             'Omit or leave blank to run the baseline.')
     return parser.parse_args()
 
 
 # ============================================================
 #  Main entry point
 # ============================================================
-def main(project: str = 'projects/UM_Dearborn', mode: str = 'full'):
+def main(project: str = 'projects/UM_Dearborn',
+         mode:    str = 'full',
+         scenario: str = None):
     project_path = Path(project)
 
     # ----------------------------------------------------------------
@@ -197,42 +209,85 @@ def main(project: str = 'projects/UM_Dearborn', mode: str = 'full'):
     hub_wb = map_intersection_points(hub_wb, intersections)
     hub_wb = map_access_points(hub_wb, TAZ)
 
+    # Rebuild all_roads with the mapped road dicts
+    all_roads = [ev_sb, ev_nb, hub_eb, hub_wb]
+
+    # ----------------------------------------------------------------
+    # OD-access tensor — loaded from taz_config.xlsx
+    # ----------------------------------------------------------------
+    od_access = load_od_access(project_path, [r['name'] for r in all_roads])
+
+    # ----------------------------------------------------------------
+    # Apply scenario overrides (before demand model runs)
+    # ----------------------------------------------------------------
+    auto_share = None
+    if scenario and scenario_config_exists(project_path):
+        print(f'Applying scenario: {scenario}')
+        corridor_configs, FD, TAZ, intersections, QUICKTUNE, od_access, auto_share = \
+            apply_scenario(
+                corridor_configs, FD, TAZ, intersections, QUICKTUNE, od_access,
+                scenario_name=scenario,
+                project_path=project_path,
+                sim=sim,
+            )
+        # Re-initialise corridors if signal overrides changed their parameters
+        all_roads = [initialize_corridor(cfg, sim, FD) for cfg in corridor_configs]
+        all_roads = [map_access_points(r, TAZ) for r in all_roads]
+        all_roads = [map_intersection_points(r, intersections) for r in all_roads]
+        ev_sb, ev_nb, hub_eb, hub_wb = all_roads[0], all_roads[1], all_roads[2], all_roads[3]
+        print('Done applying scenario overrides...')
+
     # ----------------------------------------------------------------
     # Four-step demand model — reads xlsx from project_path
     # ----------------------------------------------------------------
-    demand = classic_traffic_demand_model(TAZ, project_path=project_path)
+    demand = classic_traffic_demand_model(TAZ,
+                                          project_path=project_path,
+                                          od_access=od_access,
+                                          auto_share=auto_share)
     print('Done loading 4-step model...')
 
     # ----------------------------------------------------------------
     # Apply QuickTune scale factors
+    # QuickTune keys are constructed as {direction_abbrev}_{in|out}
+    # e.g. 'SB_in', 'SB_out', 'NB_in', ... loaded from taz_config.xlsx
     # ----------------------------------------------------------------
     qt_raw = {
         'V_taz_depart': demand['V_taz_depart'].copy(),
         'V_taz_arrive': demand['V_taz_arrive'].copy(),
     }
 
-    intr_eb = next(i for i in intersections if i['roadName'] == hub_eb['name'])
-    intr_wb = next(i for i in intersections if i['roadName'] == hub_wb['name'])
+    for r_idx, road in enumerate(all_roads):
+        rkey = road_keys[r_idx]
+        bnd_in  = road['boundary_idx'][0]   # 1-based TAZ index, 0 = intersection
+        bnd_out = road['boundary_idx'][1]
 
-    demand['V_taz_depart'][0, 3] *= QUICKTUNE['SB_in']   # SB in : NorthBoundary (idx 4→0-based 3)
-    demand['V_taz_arrive'][0, 4] *= QUICKTUNE['SB_out']  # SB out: SouthBoundary (idx 5→0-based 4)
-    demand['V_taz_depart'][1, 4] *= QUICKTUNE['NB_in']   # NB in : SouthBoundary
-    demand['V_taz_arrive'][1, 3] *= QUICKTUNE['NB_out']  # NB out: NorthBoundary
-    for k in intr_eb['taz_idx_external']:
-        demand['V_taz_depart'][2, k - 1] *= QUICKTUNE['EB_in']
-    demand['V_taz_arrive'][2, 5] *= QUICKTUNE['EB_out']  # EB out: EastBoundary (idx 6→0-based 5)
-    demand['V_taz_depart'][3, 5] *= QUICKTUNE['WB_in']   # WB in : EastBoundary
-    for k in intr_wb['taz_idx_external']:
-        demand['V_taz_arrive'][3, k - 1] *= QUICKTUNE['WB_out']
+        # Scale upstream boundary inflow
+        qt_in = QUICKTUNE.get(f'{rkey}_in', 1.0)
+        if bnd_in != 0:
+            demand['V_taz_depart'][r_idx, bnd_in - 1] *= qt_in
+        else:
+            # Intersection side: scale all external TAZ departures for this road
+            intr = next(i for i in intersections if i['roadName'] == road['name'])
+            for k in intr['taz_idx_external']:
+                demand['V_taz_depart'][r_idx, k - 1] *= qt_in
+
+        # Scale downstream boundary outflow
+        qt_out = QUICKTUNE.get(f'{rkey}_out', 1.0)
+        if bnd_out != 0:
+            demand['V_taz_arrive'][r_idx, bnd_out - 1] *= qt_out
+        else:
+            intr = next(i for i in intersections if i['roadName'] == road['name'])
+            for k in intr['taz_idx_external']:
+                demand['V_taz_arrive'][r_idx, k - 1] *= qt_out
+
     print('Done applying Quick Tune scale factors...')
 
     # ----------------------------------------------------------------
     # Truth data (MDOT)
     # ----------------------------------------------------------------
-    ev_sb['Truth']  = mdot_truth_data(ev_sb['name'])
-    ev_nb['Truth']  = mdot_truth_data(ev_nb['name'])
-    hub_eb['Truth'] = mdot_truth_data(hub_eb['name'])
-    hub_wb['Truth'] = mdot_truth_data(hub_wb['name'])
+    for road in all_roads:
+        road['Truth'] = load_truth_data(project_path, road['name'])
+    ev_sb, ev_nb, hub_eb, hub_wb = all_roads[0], all_roads[1], all_roads[2], all_roads[3]
     print('Done loading MDOT data...')
 
     all_roads  = [ev_sb, ev_nb, hub_eb, hub_wb]
@@ -318,8 +373,8 @@ def main(project: str = 'projects/UM_Dearborn', mode: str = 'full'):
         avg_temporal   = (ev_sb_temporal + ev_nb_temporal)
         avg_temporal   = avg_temporal / (avg_temporal.sum() + 1e-12)
 
-        intr_eb_tazs = intr_eb['taz_idx_external']
-        intr_wb_tazs = intr_wb['taz_idx_external']
+        intr_eb_tazs = next(i for i in intersections if i['roadName'] == hub_eb['name'])['taz_idx_external']
+        intr_wb_tazs = next(i for i in intersections if i['roadName'] == hub_wb['name'])['taz_idx_external']
         hub_eb['F_desired'][0, :] = (
             avg_temporal
             * np.sum(demand['V_taz_depart'][2, [k - 1 for k in intr_eb_tazs]])
@@ -824,4 +879,4 @@ def main(project: str = 'projects/UM_Dearborn', mode: str = 'full'):
 # ============================================================
 if __name__ == '__main__':
     args = _parse_args()
-    main(project=args.project, mode=args.mode)
+    main(project=args.project, mode=args.mode, scenario=args.scenario)
