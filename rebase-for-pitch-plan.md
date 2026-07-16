@@ -344,7 +344,9 @@ for the development team and a credibility artifact shown to the client during t
 - Tests must use only Python stdlib, NumPy, Pandas, and pytest — no MATLAB, no project xlsx files
 
 ### Status
-[ ] pending
+[x] done — 62 tests across 6 modules; all pass (0.69 s); godunov_flux renamed public for
+    testability; lwr_model.py 86%, initialize_corridor.py 83% coverage; all tests isolated
+    with no xlsx deps; tests/README.md written; pyproject.toml configures pytest.
 
 ---
 
