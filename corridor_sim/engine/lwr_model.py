@@ -56,7 +56,7 @@ def lwr_model(road, rho_n, demand, zone, sim):
     g_eff_n = np.zeros(Nx)
 
     for i in range(Nx - 1):          # interior interfaces 1 .. Nx-1
-        F_base = _godunov_flux(FD, FD['vf'][i], rho_n[i], rho_n[i + 1],
+        F_base = godunov_flux(FD, FD['vf'][i], rho_n[i], rho_n[i + 1],
                                road['N_lanes'][i])
         if road['is_signal'][i]:
             F_n[i + 1] = min(F_base, g_n * signal['Qsat'])
@@ -148,7 +148,7 @@ def lwr_model(road, rho_n, demand, zone, sim):
     return rho_next, F_n, F_n_desired, g_n, g_eff_n, s_n
 
 
-def _godunov_flux(FD, vf, rho_up, rho_down, n_lanes):
+def godunov_flux(FD, vf, rho_up, rho_down, n_lanes):
     """
     Godunov numerical flux for the LWR model with Greenshields FD.
 
