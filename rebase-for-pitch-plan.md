@@ -393,7 +393,12 @@ that interface, positioning the platform as a product rather than a research scr
 - Streamlit's `st.sidebar` is well suited to the project/scenario selector; `st.tabs` for result panels
 
 ### Status
-[ ] pending
+[x] done — dashboard/ package delivered: engine_runner.py, sidebar.py,
+    pages/project_setup.py, pages/results.py, app.py.
+    Streamlit app runs at localhost:8501; run_dashboard.bat + .sh launchers
+    added; README.md Quick Start section rewritten with three options;
+    all 62 unit tests still pass; engine runner smoke-tested (demand_only
+    round-trip, result keys + road names confirmed correct).
 
 ---
 
@@ -441,7 +446,20 @@ a repeatable demo script that walks through the UM-Dearborn reference case end-t
 - Current `README.md` is minimal — fully rewrite it as a product-facing document
 
 ### Status
-[ ] pending
+[x] done — README.md rewritten as product brochure (Key Capabilities, Quick
+    Start A/B/C, Repository Structure, How to Add a New Corridor, Tests,
+    Documentation, Methodology Summary, License sections).
+    docs/methodology.md written (LWR PDE, Godunov flux, Greenshields FD,
+    4-step NCHRP 716, QuickTune, CFL, references — PE audience).
+    docs/new_project_guide.md written (all 6 xlsx files, 7 calibration steps,
+    worked Oak Ave example, common issues table).
+    projects/UM_Dearborn/demo_script.py: one-click 3-scenario pitch demo.
+    templates/ created with 3 annotated xlsx templates (colour-coded headers,
+    annotation row, example rows).
+    generate_templates.py: reproducible template generator.
+    Repo audit: all UM-Dearborn literals in engine are docstring comments or
+    legacy backward-compat stubs — no active hard-coding remains.
+    All 62 tests pass; demo_script dependency imports verified.
 
 ---
 

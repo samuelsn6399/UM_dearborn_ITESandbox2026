@@ -142,7 +142,14 @@ def list_scenarios(project: str) -> list[str]:
         load_scenario_list, scenario_config_exists,
     )
     path = Path(project)
-    names = ['Baseline']
+    all_names = ['Baseline']
     if scenario_config_exists(path):
-        names += load_scenario_list(path)
-    return names
+        all_names += load_scenario_list(path)
+    # Deduplicate while preserving insertion order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for n in all_names:
+        if n not in seen:
+            seen.add(n)
+            unique.append(n)
+    return unique
